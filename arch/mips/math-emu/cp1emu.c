@@ -64,7 +64,7 @@ static int fpu_emu(struct pt_regs *, struct mips_fpu_struct *,
 static int fpux_emu(struct pt_regs *,
 	struct mips_fpu_struct *, mips_instruction, void *__user *);
 
-#ifdef CONFIG_MACH_LOONGSON
+#ifdef CONFIG_MACH_LOONGSON64
 static int loongson_spec2_emu(struct pt_regs *,
 	struct mips_fpu_struct *, mips_instruction, void *__user *);
 #endif
@@ -459,7 +459,7 @@ static int isBranchInstr(struct pt_regs *regs, struct mm_decoded_insn dec_insn,
 			/* Fall through */
 		case jr_op:
 			/* For R6, JR already emulated in jalr_op */
-			if (NO_R6EMU && insn.r_format.opcode == jr_op)
+			if (NO_R6EMU && insn.r_format.func == jr_op)
 				break;
 			*contpc = regs->regs[insn.r_format.rs];
 			return 1;
@@ -559,7 +559,7 @@ static int isBranchInstr(struct pt_regs *regs, struct mm_decoded_insn dec_insn,
 				dec_insn.next_pc_inc;
 		return 1;
 	case blezl_op:
-		if (NO_R6EMU)
+		if (!insn.i_format.rt && NO_R6EMU)
 			break;
 	case blez_op:
 
@@ -596,7 +596,7 @@ static int isBranchInstr(struct pt_regs *regs, struct mm_decoded_insn dec_insn,
 				dec_insn.next_pc_inc;
 		return 1;
 	case bgtzl_op:
-		if (NO_R6EMU)
+		if (!insn.i_format.rt && NO_R6EMU)
 			break;
 	case bgtz_op:
 		/*
@@ -1366,7 +1366,7 @@ emul:
 				xcp->regs[MIPSInst_RS(ir)];
 		break;
 
-#ifdef CONFIG_MACH_LOONGSON
+#ifdef CONFIG_MACH_LOONGSON64
 	case spec2_op:{
 		int sig = loongson_spec2_emu(xcp, ctx, ir, fault_addr);
 		if (sig)
@@ -1452,7 +1452,7 @@ DEF3OP(msub, dp, ieee754dp_mul, ieee754dp_sub, );
 DEF3OP(nmadd, dp, ieee754dp_mul, ieee754dp_add, ieee754dp_neg);
 DEF3OP(nmsub, dp, ieee754dp_mul, ieee754dp_sub, ieee754dp_neg);
 
-#ifdef CONFIG_MACH_LOONGSON
+#ifdef CONFIG_MACH_LOONGSON64
 static int loongson_spec2_emu(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 	mips_instruction ir, void *__user *fault_addr)
 {
@@ -1830,7 +1830,7 @@ static int fpu_emu(struct pt_regs *xcp, struct mips_fpu_struct *ctx,
 		union ieee754dp d;
 		struct {
 			union ieee754sp s;
-#ifdef CONFIG_MACH_LOONGSON
+#ifdef CONFIG_MACH_LOONGSON64
 			union ieee754sp s2; /* for Loongson paired singles */
 #endif
 		};
@@ -2244,7 +2244,7 @@ dcopuop:
 		break;
 	}
 
-#ifdef CONFIG_MACH_LOONGSON
+#ifdef CONFIG_MACH_LOONGSON64
 	case ps_fmt:{		/* 6 */
 		/* Support for Loongson paired single fp instructions */
 		union {
@@ -2392,7 +2392,7 @@ dcopuop:
 
 		DITOREG(rv.l, MIPSInst_FD(ir));
 		break;
-#ifdef CONFIG_MACH_LOONGSON
+#ifdef CONFIG_MACH_LOONGSON64
 	case ps_fmt:
 		PSPTOREG(rv.s, rv.s2, MIPSInst_FD(ir));
 		break;
