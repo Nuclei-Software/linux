@@ -1153,7 +1153,7 @@ emul:
 			break;
 
 		case mfhc_op:
-			if (!cpu_has_mips_r2)
+			if (!cpu_has_mips_r2_r6)
 				goto sigill;
 
 			/* copregister rd -> gpr[rt] */
@@ -1164,7 +1164,7 @@ emul:
 			break;
 
 		case mthc_op:
-			if (!cpu_has_mips_r2)
+			if (!cpu_has_mips_r2_r6)
 				goto sigill;
 
 			/* copregister rd <- gpr[rt] */
@@ -1197,6 +1197,24 @@ emul:
 			}
 			break;
 
+		case bc1eqz_op:
+		case bc1nez_op:
+			if (!cpu_has_mips_r6 || delay_slot(xcp))
+				return SIGILL;
+
+			cond = likely = 0;
+			switch (MIPSInst_RS(ir)) {
+			case bc1eqz_op:
+				if (get_fpr32(&current->thread.fpu.fpr[MIPSInst_RT(ir)], 0) & 0x1)
+				    cond = 1;
+				break;
+			case bc1nez_op:
+				if (!(get_fpr32(&current->thread.fpu.fpr[MIPSInst_RT(ir)], 0) & 0x1))
+				    cond = 1;
+				break;
+			}
+			goto branch_common;
+
 		case bc_op:
 			if (delay_slot(xcp))
 				return SIGILL;
@@ -1223,7 +1241,7 @@ emul:
 			case bct_op:
 				break;
 			}
-
+branch_common:
 			set_delay_slot(xcp);
 			if (cond) {
 				/*
