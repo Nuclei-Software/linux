@@ -11,7 +11,7 @@
 #else
 # define SECTION_SIZE_BITS	28
 #endif
-#if !defined(CONFIG_MACH_LOONGSON) || !defined(CONFIG_CPU_LOONGSON2)	/* Commit c461731836 broke Loongson2.  */
+#if !defined(CONFIG_MACH_LOONGSON64) || !defined(CONFIG_CPU_LOONGSON2)	/* Commit c461731836 broke Loongson2.  */
 # define MAX_PHYSMEM_BITS	48
 #else
 # define MAX_PHYSMEM_BITS	35
