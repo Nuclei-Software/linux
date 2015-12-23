@@ -1762,6 +1762,7 @@ static const struct of_device_id of_sm501_match_tbl[] = {
 	{ .compatible = "smi,sm501", },
 	{ /* end */ }
 };
+MODULE_DEVICE_TABLE(of, of_sm501_match_tbl);
 
 static struct platform_driver sm501_plat_driver = {
 	.driver		= {
