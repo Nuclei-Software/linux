@@ -58,10 +58,6 @@ config GDIUM_LAPTOP
 	  This mini-driver drives the ST7 chipset present in the Gdium laptops.
 	  This gives battery support, wlan rfkill.
 
-config MIPS_ACPI
-	bool
-	default y if LOONGSON_MACH3X
-
 config CPU_HWMON
 	tristate "Loongson CPU HWMon Driver"
 	depends on LOONGSON_MACH3X
