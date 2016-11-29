@@ -597,14 +597,14 @@ static u32 hash_get(u8 *addr)
 }
 
 /**
- * hash_add - Hash function to add mac addr from hash table
+ * emac_hash_add - Hash function to add mac addr from hash table
  * @priv: The DaVinci EMAC private adapter structure
  * @mac_addr: mac address to delete from hash table
  *
  * Adds mac address to the internal hash table
  *
  */
-static int hash_add(struct emac_priv *priv, u8 *mac_addr)
+static int emac_hash_add(struct emac_priv *priv, u8 *mac_addr)
 {
 	struct device *emac_dev = &priv->ndev->dev;
 	u32 rc = 0;
@@ -613,7 +613,7 @@ static int hash_add(struct emac_priv *priv, u8 *mac_addr)
 
 	if (hash_value >= EMAC_NUM_MULTICAST_BITS) {
 		if (netif_msg_drv(priv)) {
-			dev_err(emac_dev, "DaVinci EMAC: hash_add(): Invalid "\
+			dev_err(emac_dev, "DaVinci EMAC: emac_hash_add(): Invalid "\
 				"Hash %08x, should not be greater than %08x",
 				hash_value, (EMAC_NUM_MULTICAST_BITS - 1));
 		}
@@ -639,14 +639,14 @@ static int hash_add(struct emac_priv *priv, u8 *mac_addr)
 }
 
 /**
- * hash_del - Hash function to delete mac addr from hash table
+ * emac_hash_del - Hash function to delete mac addr from hash table
  * @priv: The DaVinci EMAC private adapter structure
  * @mac_addr: mac address to delete from hash table
  *
  * Removes mac address from the internal hash table
  *
  */
-static int hash_del(struct emac_priv *priv, u8 *mac_addr)
+static int emac_hash_del(struct emac_priv *priv, u8 *mac_addr)
 {
 	u32 hash_value;
 	u32 hash_bit;
@@ -696,10 +696,10 @@ static void emac_add_mcast(struct emac_priv *priv, u32 action, u8 *mac_addr)
 
 	switch (action) {
 	case EMAC_MULTICAST_ADD:
-		update = hash_add(priv, mac_addr);
+		update = emac_hash_add(priv, mac_addr);
 		break;
 	case EMAC_MULTICAST_DEL:
-		update = hash_del(priv, mac_addr);
+		update = emac_hash_del(priv, mac_addr);
 		break;
 	case EMAC_ALL_MULTI_SET:
 		update = 1;
@@ -1410,6 +1410,7 @@ static int emac_dev_open(struct net_device *ndev)
 	int i = 0;
 	struct emac_priv *priv = netdev_priv(ndev);
 	struct phy_device *phydev = NULL;
+	struct device *phy = NULL;
 
 	ret = pm_runtime_get_sync(&priv->pdev->dev);
 	if (ret < 0) {
@@ -1488,19 +1489,20 @@ static int emac_dev_open(struct net_device *ndev)
 
 	/* use the first phy on the bus if pdata did not give us a phy id */
 	if (!phydev && !priv->phy_id) {
-		struct device *phy;
-
 		phy = bus_find_device(&mdio_bus_type, NULL, NULL,
 				      match_first_device);
-		if (phy)
+		if (phy) {
 			priv->phy_id = dev_name(phy);
+			if (!priv->phy_id || !*priv->phy_id)
+				put_device(phy);
+		}
 	}
 
 	if (!phydev && priv->phy_id && *priv->phy_id) {
 		phydev = phy_connect(ndev, priv->phy_id,
 				     &emac_adjust_link,
 				     PHY_INTERFACE_MODE_MII);
-
+		put_device(phy);	/* reference taken by bus_find_device */
 		if (IS_ERR(phydev)) {
 			dev_err(emac_dev, "could not connect to phy %s\n",
 				priv->phy_id);
@@ -1870,10 +1872,10 @@ static int davinci_emac_probe(struct platform_device *pdev)
 		goto no_pdata;
 	}
 
-	priv->txchan = cpdma_chan_create(priv->dma, tx_chan_num(EMAC_DEF_TX_CH),
-				       emac_tx_handler);
-	priv->rxchan = cpdma_chan_create(priv->dma, rx_chan_num(EMAC_DEF_RX_CH),
-				       emac_rx_handler);
+	priv->txchan = cpdma_chan_create(priv->dma, EMAC_DEF_TX_CH,
+					 emac_tx_handler, 0);
+	priv->rxchan = cpdma_chan_create(priv->dma, EMAC_DEF_RX_CH,
+					 emac_rx_handler, 1);
 	if (WARN_ON(!priv->txchan || !priv->rxchan)) {
 		rc = -ENOMEM;
 		goto no_cpdma_chan;

@@ -29,10 +29,12 @@ struct radeon_atpx {
 	acpi_handle handle;
 	struct radeon_atpx_functions functions;
 	bool is_hybrid;
+	bool dgpu_req_power_for_displays;
 };
 
 static struct radeon_atpx_priv {
 	bool atpx_detected;
+	bool bridge_pm_usable;
 	/* handle for device - and atpx */
 	acpi_handle dhandle;
 	struct radeon_atpx atpx;
@@ -70,6 +72,10 @@ bool radeon_has_atpx_dgpu_power_cntl(void) {
 
 bool radeon_is_atpx_hybrid(void) {
 	return radeon_atpx_priv.atpx.is_hybrid;
+}
+
+bool radeon_atpx_dgpu_req_power_for_displays(void) {
+	return radeon_atpx_priv.atpx.dgpu_req_power_for_displays;
 }
 
 /**
@@ -198,7 +204,11 @@ static int radeon_atpx_validate(struct radeon_atpx *atpx)
 	atpx->is_hybrid = false;
 	if (valid_bits & ATPX_MS_HYBRID_GFX_SUPPORTED) {
 		printk("ATPX Hybrid Graphics\n");
-		atpx->functions.power_cntl = false;
+		/*
+		 * Disable legacy PM methods only when pcie port PM is usable,
+		 * otherwise the device might fail to power off or power on.
+		 */
+		atpx->functions.power_cntl = !radeon_atpx_priv.bridge_pm_usable;
 		atpx->is_hybrid = true;
 	}
 
@@ -469,6 +479,7 @@ static int radeon_atpx_power_state(enum vga_switcheroo_client_id id,
  */
 static bool radeon_atpx_pci_probe_handle(struct pci_dev *pdev)
 {
+	struct pci_dev *parent_pdev = pci_upstream_bridge(pdev);
 	acpi_handle dhandle, atpx_handle;
 	acpi_status status;
 
@@ -482,6 +493,7 @@ static bool radeon_atpx_pci_probe_handle(struct pci_dev *pdev)
 
 	radeon_atpx_priv.dhandle = dhandle;
 	radeon_atpx_priv.atpx.handle = atpx_handle;
+	radeon_atpx_priv.bridge_pm_usable = parent_pdev && parent_pdev->bridge_d3;
 	return true;
 }
 
