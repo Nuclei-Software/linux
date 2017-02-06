@@ -26,7 +26,7 @@
 #include <linux/jhash.h>
 #include <linux/ima.h>
 #include <linux/slab.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/exportfs.h>
 #include <linux/writeback.h>
 #include <linux/security.h>
@@ -332,37 +332,6 @@ nfsd_sanitize_attrs(struct inode *inode, struct iattr *iap)
 	}
 }
 
-static __be32
-nfsd_get_write_access(struct svc_rqst *rqstp, struct svc_fh *fhp,
-		struct iattr *iap)
-{
-	struct inode *inode = d_inode(fhp->fh_dentry);
-	int host_err;
-
-	if (iap->ia_size < inode->i_size) {
-		__be32 err;
-
-		err = nfsd_permission(rqstp, fhp->fh_export, fhp->fh_dentry,
-				NFSD_MAY_TRUNC | NFSD_MAY_OWNER_OVERRIDE);
-		if (err)
-			return err;
-	}
-
-	host_err = get_write_access(inode);
-	if (host_err)
-		goto out_nfserrno;
-
-	host_err = locks_verify_truncate(inode, NULL, iap->ia_size);
-	if (host_err)
-		goto out_put_write_access;
-	return 0;
-
-out_put_write_access:
-	put_write_access(inode);
-out_nfserrno:
-	return nfserrno(host_err);
-}
-
 /*
  * Set various file attributes.  After this call fhp needs an fh_put.
  */
@@ -377,7 +346,6 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	__be32		err;
 	int		host_err;
 	bool		get_write_count;
-	int		size_change = 0;
 
 	if (iap->ia_valid & (ATTR_ATIME | ATTR_MTIME | ATTR_SIZE))
 		accmode |= NFSD_MAY_WRITE|NFSD_MAY_OWNER_OVERRIDE;
@@ -390,11 +358,11 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 	/* Get inode */
 	err = fh_verify(rqstp, fhp, ftype, accmode);
 	if (err)
-		goto out;
+		return err;
 	if (get_write_count) {
 		host_err = fh_want_write(fhp);
 		if (host_err)
-			return nfserrno(host_err);
+			goto out_host_err;
 	}
 
 	dentry = fhp->fh_dentry;
@@ -405,50 +373,59 @@ nfsd_setattr(struct svc_rqst *rqstp, struct svc_fh *fhp, struct iattr *iap,
 		iap->ia_valid &= ~ATTR_MODE;
 
 	if (!iap->ia_valid)
-		goto out;
+		return 0;
 
 	nfsd_sanitize_attrs(inode, iap);
 
+	if (check_guard && guardtime != inode->i_ctime.tv_sec)
+		return nfserr_notsync;
+
 	/*
 	 * The size case is special, it changes the file in addition to the
-	 * attributes.
+	 * attributes, and file systems don't expect it to be mixed with
+	 * "random" attribute changes.  We thus split out the size change
+	 * into a separate call for vfs_truncate, and do the rest as a
+	 * a separate setattr call.
 	 */
 	if (iap->ia_valid & ATTR_SIZE) {
-		err = nfsd_get_write_access(rqstp, fhp, iap);
-		if (err)
-			goto out;
-		size_change = 1;
+		struct path path = {
+			.mnt	= fhp->fh_export->ex_path.mnt,
+			.dentry	= dentry,
+		};
+		bool implicit_mtime = false;
 
 		/*
-		 * RFC5661, Section 18.30.4:
-		 *   Changing the size of a file with SETATTR indirectly
-		 *   changes the time_modify and change attributes.
-		 *
-		 * (and similar for the older RFCs)
+		 * vfs_truncate implicity updates the mtime IFF the file size
+		 * actually changes.  Avoid the additional seattr call below if
+		 * the only other attribute that the client sends is the mtime.
 		 */
-		if (iap->ia_size != i_size_read(inode))
-			iap->ia_valid |= ATTR_MTIME;
+		if (iap->ia_size != i_size_read(inode) &&
+		    ((iap->ia_valid & ~(ATTR_SIZE | ATTR_MTIME)) == 0))
+			implicit_mtime = true;
+
+		host_err = vfs_truncate(&path, iap->ia_size);
+		if (host_err)
+			goto out_host_err;
+
+		iap->ia_valid &= ~ATTR_SIZE;
+		if (implicit_mtime)
+			iap->ia_valid &= ~ATTR_MTIME;
+		if (!iap->ia_valid)
+			goto done;
 	}
 
 	iap->ia_valid |= ATTR_CTIME;
 
-	if (check_guard && guardtime != inode->i_ctime.tv_sec) {
-		err = nfserr_notsync;
-		goto out_put_write_access;
-	}
-
 	fh_lock(fhp);
 	host_err = notify_change(dentry, iap, NULL);
 	fh_unlock(fhp);
-	err = nfserrno(host_err);
+	if (host_err)
+		goto out_host_err;
 
-out_put_write_access:
-	if (size_change)
-		put_write_access(inode);
-	if (!err)
-		err = nfserrno(commit_metadata(fhp));
-out:
-	return err;
+done:
+	host_err = commit_metadata(fhp);
+out_host_err:
+	return nfserrno(host_err);
 }
 
 #if defined(CONFIG_NFSD_V4)
@@ -509,8 +486,7 @@ __be32 nfsd4_set_nfs4_label(struct svc_rqst *rqstp, struct svc_fh *fhp,
 __be32 nfsd4_clone_file_range(struct file *src, u64 src_pos, struct file *dst,
 		u64 dst_pos, u64 count)
 {
-	return nfserrno(vfs_clone_file_range(src, src_pos, dst, dst_pos,
-			count));
+	return nfserrno(do_clone_file_range(src, src_pos, dst, dst_pos, count));
 }
 
 ssize_t nfsd_copy_file_range(struct file *src, u64 src_pos, struct file *dst,
@@ -1451,7 +1427,6 @@ do_nfsd_create(struct svc_rqst *rqstp, struct svc_fh *fhp,
 __be32
 nfsd_readlink(struct svc_rqst *rqstp, struct svc_fh *fhp, char *buf, int *lenp)
 {
-	struct inode	*inode;
 	mm_segment_t	oldfs;
 	__be32		err;
 	int		host_err;
@@ -1463,10 +1438,9 @@ nfsd_readlink(struct svc_rqst *rqstp, struct svc_fh *fhp, char *buf, int *lenp)
 
 	path.mnt = fhp->fh_export->ex_path.mnt;
 	path.dentry = fhp->fh_dentry;
-	inode = d_inode(path.dentry);
 
 	err = nfserr_inval;
-	if (!inode->i_op->readlink)
+	if (!d_is_symlink(path.dentry))
 		goto out;
 
 	touch_atime(&path);
@@ -1475,7 +1449,7 @@ nfsd_readlink(struct svc_rqst *rqstp, struct svc_fh *fhp, char *buf, int *lenp)
 	 */
 
 	oldfs = get_fs(); set_fs(KERNEL_DS);
-	host_err = inode->i_op->readlink(path.dentry, (char __user *)buf, *lenp);
+	host_err = vfs_readlink(path.dentry, (char __user *)buf, *lenp);
 	set_fs(oldfs);
 
 	if (host_err < 0)
