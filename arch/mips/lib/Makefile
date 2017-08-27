@@ -3,7 +3,7 @@
 #
 
 lib-y	+= bitops.o csum_partial.o memcpy.o memset.o \
-	   mips-atomic.o strlen_user.o strncpy_user.o \
+	   mips-atomic.o strncpy_user.o \
 	   strnlen_user.o uncached.o
 
 ifndef CONFIG_CSRC_R4K
