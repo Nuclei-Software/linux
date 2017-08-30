@@ -1222,7 +1222,7 @@ static int yeeloong_hotkey_init(void)
 	return 0;
 
 free_keymap:
-	sparse_keymap_free(yeeloong_hotkey_dev);
+	/* sparse_keymap_free(yeeloong_hotkey_dev); */
 free_dev:
 	input_free_device(yeeloong_hotkey_dev);
 free_irq:
@@ -1247,7 +1247,7 @@ static void yeeloong_hotkey_exit(void)
 #endif
 
 	if (yeeloong_hotkey_dev) {
-		sparse_keymap_free(yeeloong_hotkey_dev);
+		/* sparse_keymap_free(yeeloong_hotkey_dev); */
 		input_unregister_device(yeeloong_hotkey_dev);
 		yeeloong_hotkey_dev = NULL;
 	}
