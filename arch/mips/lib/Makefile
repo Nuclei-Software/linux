@@ -10,7 +10,7 @@ ifndef CONFIG_CSRC_R4K
 lib-y	+= delay.o
 endif
 
-obj-y			+= iomap.o
+obj-y			+= iomap.o iomap_copy.o
 obj-$(CONFIG_PCI)	+= iomap-pci.o
 lib-$(CONFIG_GENERIC_CSUM)	:= $(filter-out csum_partial.o, $(lib-y))
 
