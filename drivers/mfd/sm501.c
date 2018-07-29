@@ -19,7 +19,7 @@
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/pci.h>
-#include <linux/i2c-gpio.h>
+#include <linux/platform_data/i2c-gpio.h>
 #include <linux/gpio/machine.h>
 #include <linux/slab.h>
 
@@ -1050,13 +1050,13 @@ static int sm501_register_gpio(struct sm501_devdata *sm)
 	spin_lock_init(&gpio->lock);
 
 	gpio->regs_res = request_mem_region(iobase, 0x20, "sm501-gpio");
-	if (gpio->regs_res == NULL) {
+	if (!gpio->regs_res) {
 		dev_err(sm->dev, "gpio: failed to request region\n");
 		return -ENXIO;
 	}
 
 	gpio->regs = ioremap(iobase, 0x20);
-	if (gpio->regs == NULL) {
+	if (!gpio->regs) {
 		dev_err(sm->dev, "gpio: failed to remap registers\n");
 		ret = -ENXIO;
 		goto err_claimed;
@@ -1396,7 +1396,7 @@ static int sm501_init_dev(struct sm501_devdata *sm)
 			sm501_register_pwm(sm);
 	}
 
-	if (pdata && pdata->gpio_i2c != NULL && pdata->gpio_i2c_nr > 0) {
+	if (pdata && pdata->gpio_i2c && pdata->gpio_i2c_nr > 0) {
 		if (!sm501_gpio_isregistered(sm))
 			dev_err(sm->dev, "no gpio available for i2c gpio.\n");
 		else
@@ -1421,9 +1421,8 @@ static int sm501_plat_probe(struct platform_device *dev)
 	struct sm501_devdata *sm;
 	int ret;
 
-	sm = kzalloc(sizeof(struct sm501_devdata), GFP_KERNEL);
-	if (sm == NULL) {
-		dev_err(&dev->dev, "no memory for device data\n");
+	sm = kzalloc(sizeof(*sm), GFP_KERNEL);
+	if (!sm) {
 		ret = -ENOMEM;
 		goto err1;
 	}
@@ -1441,8 +1440,7 @@ static int sm501_plat_probe(struct platform_device *dev)
 
 	sm->io_res = platform_get_resource(dev, IORESOURCE_MEM, 1);
 	sm->mem_res = platform_get_resource(dev, IORESOURCE_MEM, 0);
-
-	if (sm->io_res == NULL || sm->mem_res == NULL) {
+	if (!sm->io_res || !sm->mem_res) {
 		dev_err(&dev->dev, "failed to get IO resource\n");
 		ret = -ENOENT;
 		goto err_res;
@@ -1450,8 +1448,7 @@ static int sm501_plat_probe(struct platform_device *dev)
 
 	sm->regs_claim = request_mem_region(sm->io_res->start,
 					    0x100, "sm501");
-
-	if (sm->regs_claim == NULL) {
+	if (!sm->regs_claim) {
 		dev_err(&dev->dev, "cannot claim registers\n");
 		ret = -EBUSY;
 		goto err_res;
@@ -1460,8 +1457,7 @@ static int sm501_plat_probe(struct platform_device *dev)
 	platform_set_drvdata(dev, sm);
 
 	sm->regs = ioremap(sm->io_res->start, resource_size(sm->io_res));
-
-	if (sm->regs == NULL) {
+	if (!sm->regs) {
 		dev_err(&dev->dev, "cannot remap registers\n");
 		ret = -EIO;
 		goto err_claim;
@@ -1487,7 +1483,7 @@ static void sm501_set_power(struct sm501_devdata *sm, int on)
 {
 	struct sm501_platdata *pd = sm->platdata;
 
-	if (pd == NULL)
+	if (!pd)
 		return;
 
 	if (pd->get_power) {
@@ -1616,9 +1612,8 @@ static int sm501_pci_probe(struct pci_dev *dev,
 	struct sm501_devdata *sm;
 	int err;
 
-	sm = kzalloc(sizeof(struct sm501_devdata), GFP_KERNEL);
-	if (sm == NULL) {
-		dev_err(&dev->dev, "no memory for device data\n");
+	sm = kzalloc(sizeof(*sm), GFP_KERNEL);
+	if (!sm) {
 		err = -ENOMEM;
 		goto err1;
 	}
@@ -1669,15 +1664,14 @@ static int sm501_pci_probe(struct pci_dev *dev,
 
 	sm->regs_claim = request_mem_region(sm->io_res->start,
 					    0x100, "sm501");
-	if (sm->regs_claim == NULL) {
+	if (!sm->regs_claim) {
 		dev_err(&dev->dev, "cannot claim registers\n");
 		err= -EBUSY;
 		goto err3;
 	}
 
 	sm->regs = pci_ioremap_bar(dev, 1);
-
-	if (sm->regs == NULL) {
+	if (!sm->regs) {
 		dev_err(&dev->dev, "cannot remap registers\n");
 		err = -EIO;
 		goto err4;
