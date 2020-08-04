@@ -202,7 +202,8 @@ sifive_spi_prep_transfer(struct sifive_spi *spi, struct spi_device *device,
 	 *    (8/mode) * fifo_depth / hz <= 5 * 10^-6
 	 *    1600000 * fifo_depth <= hz * mode
 	 */
-	return 1600000 * spi->fifo_depth <= t->speed_hz * mode;
+	//return 1600000 * spi->fifo_depth <= t->speed_hz * mode;
+	return 1;
 }
 
 static irqreturn_t sifive_spi_irq(int irq, void *dev_id)
