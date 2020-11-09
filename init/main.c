@@ -826,6 +826,8 @@ void __init __weak arch_call_rest_init(void)
 	rest_init();
 }
 
+extern int enclave_ioctl_init(void);
+
 asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
@@ -1413,6 +1415,10 @@ static int __ref kernel_init(void *unused)
 	rcu_end_inkernel_boot();
 
 	do_sysctl_args();
+
+	/* Note(DD): Penglai: init, we need a better way to init Penglai */
+	enclave_ioctl_init();
+
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
