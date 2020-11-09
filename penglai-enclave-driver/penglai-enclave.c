@@ -59,7 +59,7 @@ enclave_t* create_enclave(int total_pages)
     goto free_enclave;
   }
 
-  printk("[Penglai Driver@%s] total_pages:%d order:%d\n",
+  printk("[Penglai Driver@%s] total_pages:%d order:%ld\n",
 		  __func__, total_pages, order);
   //Note: SBI_SM_ALLOC_ENCLAVE_MEM's arg is the num of bytes instead of pages
   require_sec_memory.size = total_pages << RISCV_PGSHIFT;
