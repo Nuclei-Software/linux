@@ -24,6 +24,8 @@
 
 #include "../kernel/head.h"
 
+#include <linux/dma-contiguous.h>
+
 unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)]
 							__page_aligned_bss;
 EXPORT_SYMBOL(empty_zero_page);
@@ -536,6 +538,7 @@ void __init paging_init(void)
 	sparse_init();
 	setup_zero_page();
 	zone_sizes_init();
+	dma_contiguous_reserve(memblock_end_of_DRAM());
 }
 
 #ifdef CONFIG_SPARSEMEM_VMEMMAP
