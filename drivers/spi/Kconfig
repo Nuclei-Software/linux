@@ -528,6 +528,13 @@ config SPI_NPCM_PSPI
 	  This driver provides support for Nuvoton NPCM BMC
 	  Peripheral SPI controller in master mode.
 
+config SPI_NUCLEI
+	tristate "Nuclei SPI controller"
+	depends on HAS_IOMEM
+	help
+	  This driver provides support for SPI controller IP
+	  from Nuclei, only master mode supported.
+
 config SPI_LANTIQ_SSC
 	tristate "Lantiq SSC SPI controller"
 	depends on LANTIQ || X86 || COMPILE_TEST
