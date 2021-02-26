@@ -419,6 +419,7 @@ static int plic_starting_cpu(unsigned int cpu)
 
 static const struct of_device_id plic_match[] = {
 	{ .compatible = "sifive,plic-1.0.0" },
+	{ .compatible = "nuclei,plic-1.0.0" },
 	{ .compatible = "riscv,plic0" },
 	{ .compatible = "andestech,nceplic100",
 	  .data = (const void *)BIT(PLIC_QUIRK_EDGE_INTERRUPT) },
