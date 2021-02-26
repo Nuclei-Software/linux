@@ -28,6 +28,7 @@ obj-$(CONFIG_SERIAL_ALTERA_JTAGUART)	+= altera_jtaguart.o
 obj-$(CONFIG_SERIAL_ALTERA_UART)	+= altera_uart.o
 obj-$(CONFIG_SERIAL_AMBA_PL010)		+= amba-pl010.o
 obj-$(CONFIG_SERIAL_AMBA_PL011)		+= amba-pl011.o
+obj-$(CONFIG_SERIAL_NUCLEI)	+= nuclei_uart.o
 obj-$(CONFIG_SERIAL_GRLIB_GAISLER_APBUART) += apbuart.o
 obj-$(CONFIG_SERIAL_AR933X)		+= ar933x_uart.o
 obj-$(CONFIG_SERIAL_ARC)		+= arc_uart.o
