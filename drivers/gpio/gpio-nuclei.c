@@ -32,7 +32,7 @@
 #define NUCLEI_GPIO_OUTPUT_XOR	0x40
 
 #define NUCLEI_GPIO_MAX		32
-#define NUCLEI_GPIO_IRQ_OFFSET	7
+#define NUCLEI_GPIO_IRQ_OFFSET	1
 
 struct nuclei_gpio {
 	void __iomem		*base;
@@ -223,7 +223,7 @@ static int nuclei_gpio_probe(struct platform_device *pdev)
 	chip->irq_state = 0;
 
 	chip->gc.base = -1;
-	chip->gc.ngpio = ngpio;
+	chip->gc.ngpio = NUCLEI_GPIO_MAX;
 	chip->gc.label = dev_name(dev);
 	chip->gc.parent = dev;
 	chip->gc.owner = THIS_MODULE;
