@@ -16,6 +16,10 @@
 #include <linux/io.h>
 #include <linux/log2.h>
 
+#define NUCLEI_SPI_DEBUG(arg...)
+
+//#define NUCLEI_SPI_DEBUG(arg...)		printk(arg)
+
 #define NUCLEI_SPI_DRIVER_NAME           "nuclei_spi"
 
 #define NUCLEI_SPI_MAX_CS                32
@@ -25,9 +29,12 @@
 /* register offsets */
 #define NUCLEI_SPI_REG_SCKDIV            0x00 /* Serial clock divisor */
 #define NUCLEI_SPI_REG_SCKMODE           0x04 /* Serial clock mode */
+#define NUCLEI_SPI_REG_SCKSAMPLE         0x08 /* SPI data sampling divisor */
+#define NUCLEI_SPI_REG_FORCE             0x0C /* SPI oe ctrl when not use other pad */
 #define NUCLEI_SPI_REG_CSID              0x10 /* Chip select ID */
 #define NUCLEI_SPI_REG_CSDEF             0x14 /* Chip select default */
 #define NUCLEI_SPI_REG_CSMODE            0x18 /* Chip select mode */
+#define NUCLEI_SPI_REG_VERSION           0x1C /* SPI version */
 #define NUCLEI_SPI_REG_DELAY0            0x28 /* Delay control 0 */
 #define NUCLEI_SPI_REG_DELAY1            0x2c /* Delay control 1 */
 #define NUCLEI_SPI_REG_FMT               0x40 /* Frame format */
@@ -39,6 +46,13 @@
 #define NUCLEI_SPI_REG_FFMT              0x64 /* SPI flash instruction format */
 #define NUCLEI_SPI_REG_IE                0x70 /* Interrupt Enable Register */
 #define NUCLEI_SPI_REG_IP                0x74 /* Interrupt Pendings Register */
+#define NUCLEI_SPI_REG_FFMT1             0x78 /* SPI flash instruction format 1 */
+#define NUCLEI_SPI_REG_STATUS            0x7C /* SPI busy status */
+#define NUCLEI_SPI_REG_RXEDGE            0x80 /* SPI RX sample edge ctrl */
+#define NUCLEI_SPI_REG_CR                0x84 /* SPI control register */
+
+/* spi version tags */
+#define NUCLEI_SPI_VERSION_110           0x00010100
 
 /* sckdiv bits */
 #define NUCLEI_SPI_SCKDIV_DIV_MASK       0xfffU
@@ -88,8 +102,20 @@
 #define NUCLEI_SPI_IP_TXWM               BIT(0)
 #define NUCLEI_SPI_IP_RXWM               BIT(1)
 
+/* status bits */
+#define NUCLEI_SPI_STATUS_BUSY_FLAG      BIT(0)
+#define NUCLEI_SPI_STATUS_OVERRUN        BIT(2)
+#define NUCLEI_SPI_STATUS_UNDERRUN       BIT(3)
+#define NUCLEI_SPI_STATUS_TX_FULL        BIT(4)
+#define NUCLEI_SPI_STATUS_RX_EMPTY       BIT(5)
+
+#define NUCLEI_SPI_FEATURE_32B_DATA      BIT(0)
+
+
 struct nuclei_spi {
 	void __iomem      *regs;        /* virt. address of control registers */
+    u32     version;
+    u32     feature;
 	struct clk        *clk;         /* bus clock */
 	unsigned int      fifo_depth;   /* fifo depth in words */
 	u32               cs_inactive;  /* level of the CS pins when inactive */
@@ -110,6 +136,15 @@ static void nuclei_spi_init(struct nuclei_spi *spi)
 {
 	/* Watermark interrupts are disabled by default */
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_IE, 0);
+
+
+	if ((spi->feature & NUCLEI_SPI_FEATURE_32B_DATA) == NUCLEI_SPI_FEATURE_32B_DATA) {
+		/* Set spi cr reg: master mode, uDMA disabled, ddr disabled, cs output enable, hdsmode disabled */
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, 0x11);
+		/* Set FORCE register to 0x1, force enable, write protect disable */
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_FORCE, 0x1);
+	}
+
 
 	/* Default watermark FIFO threshold values */
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_TXMARK, 1);
@@ -138,6 +173,8 @@ nuclei_spi_prepare_message(struct spi_master *master, struct spi_message *msg)
 		spi->cs_inactive &= ~BIT(device->chip_select);
 	else
 		spi->cs_inactive |= BIT(device->chip_select);
+	NUCLEI_SPI_DEBUG("spi @0x%x device mode 0x%x, cs_inactive 0x%x, chip_select 0x%x\n", \
+		spi->regs, device->mode, spi->cs_inactive, device->chip_select);
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_CSDEF, spi->cs_inactive);
 
 	/* Select the correct device */
@@ -206,6 +243,19 @@ nuclei_spi_prep_transfer(struct nuclei_spi *spi, struct spi_device *device,
 	return 1600000 * spi->fifo_depth <= t->speed_hz * mode;
 }
 
+static void nuclei_spi_prope_feature(struct nuclei_spi *spi)
+{
+	u32 data;
+
+    data = nuclei_spi_read(spi, NUCLEI_SPI_REG_VERSION);
+    spi->version = data;
+    if (data >= NUCLEI_SPI_VERSION_110) {
+        spi->feature |= NUCLEI_SPI_FEATURE_32B_DATA;
+    } else {
+        spi->feature &= ~NUCLEI_SPI_FEATURE_32B_DATA;
+    }
+}
+
 static irqreturn_t nuclei_spi_irq(int irq, void *dev_id)
 {
 	struct nuclei_spi *spi = dev_id;
@@ -223,33 +273,59 @@ static irqreturn_t nuclei_spi_irq(int irq, void *dev_id)
 
 static void nuclei_spi_wait(struct nuclei_spi *spi, u32 bit, int poll)
 {
+	NUCLEI_SPI_DEBUG("spi @0x%x wait poll %d , bits %x start\n", \
+		spi->regs, poll, bit);
 	if (poll) {
 		u32 cr;
 
 		do {
 			cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_IP);
 		} while (!(cr & bit));
+		/* wait for busy flag is clear */
+		if ((spi->feature & NUCLEI_SPI_FEATURE_32B_DATA) != 0) {
+			while((nuclei_spi_read(spi, NUCLEI_SPI_REG_STATUS)
+					& NUCLEI_SPI_STATUS_BUSY_FLAG) != 0);
+		}
 	} else {
 		reinit_completion(&spi->done);
 		nuclei_spi_write(spi, NUCLEI_SPI_REG_IE, bit);
 		wait_for_completion(&spi->done);
 	}
+	NUCLEI_SPI_DEBUG("spi @0x%x wait poll %d end\n", \
+		spi->regs, poll);
 }
 
 static void nuclei_spi_tx(struct nuclei_spi *spi, const u8 *tx_ptr)
 {
-	WARN_ON_ONCE((nuclei_spi_read(spi, NUCLEI_SPI_REG_TXDATA)
-				& NUCLEI_SPI_TXDATA_FULL) != 0);
-	nuclei_spi_write(spi, NUCLEI_SPI_REG_TXDATA,
-			 *tx_ptr & NUCLEI_SPI_TXDATA_DATA_MASK);
+	if ((spi->feature & NUCLEI_SPI_FEATURE_32B_DATA) == 0) {
+		WARN_ON_ONCE((nuclei_spi_read(spi, NUCLEI_SPI_REG_TXDATA)
+					& NUCLEI_SPI_TXDATA_FULL) != 0);
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_TXDATA,
+				*tx_ptr & NUCLEI_SPI_TXDATA_DATA_MASK);
+	} else {
+		WARN_ON_ONCE((nuclei_spi_read(spi, NUCLEI_SPI_REG_STATUS)
+					& NUCLEI_SPI_STATUS_TX_FULL) != 0);
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_TXDATA,
+				*tx_ptr & NUCLEI_SPI_TXDATA_DATA_MASK);
+	}
 }
 
 static void nuclei_spi_rx(struct nuclei_spi *spi, u8 *rx_ptr)
 {
-	u32 data = nuclei_spi_read(spi, NUCLEI_SPI_REG_RXDATA);
+	u32 data;
 
-	WARN_ON_ONCE((data & NUCLEI_SPI_RXDATA_EMPTY) != 0);
-	*rx_ptr = data & NUCLEI_SPI_RXDATA_DATA_MASK;
+	if ((spi->feature & NUCLEI_SPI_FEATURE_32B_DATA) == 0) {
+		data = nuclei_spi_read(spi, NUCLEI_SPI_REG_RXDATA);
+
+		WARN_ON_ONCE((data & NUCLEI_SPI_RXDATA_EMPTY) != 0);
+		*rx_ptr = data & NUCLEI_SPI_RXDATA_DATA_MASK;
+	} else {
+		u32 status = nuclei_spi_read(spi, NUCLEI_SPI_REG_STATUS);
+		// TODO fix in newer IP, which can use spi_status rx empty flag
+		WARN_ON_ONCE((status & NUCLEI_SPI_STATUS_RX_EMPTY) != 0);
+		data = nuclei_spi_read(spi, NUCLEI_SPI_REG_RXDATA);
+		*rx_ptr = data & NUCLEI_SPI_RXDATA_DATA_MASK;
+	}
 }
 
 static int
@@ -260,8 +336,16 @@ nuclei_spi_transfer_one(struct spi_master *master, struct spi_device *device,
 	int poll = nuclei_spi_prep_transfer(spi, device, t);
 	const u8 *tx_ptr = t->tx_buf;
 	u8 *rx_ptr = t->rx_buf;
+	u8 *rx_ptr2;
 	unsigned int remaining_words = t->len;
 
+	NUCLEI_SPI_DEBUG("spi @0x%x nuclei_spi_transfer_one %d, %d\n", spi->regs, remaining_words, spi->fifo_depth);
+	NUCLEI_SPI_DEBUG("tx ");
+	int j;
+	for (j = 0; j < remaining_words; j++) {
+		NUCLEI_SPI_DEBUG("0x%x ", tx_ptr[j]);
+	}
+	NUCLEI_SPI_DEBUG("\n");
 	while (remaining_words) {
 		unsigned int n_words = min(remaining_words, spi->fifo_depth);
 		unsigned int i;
@@ -277,8 +361,14 @@ nuclei_spi_transfer_one(struct spi_master *master, struct spi_device *device,
 			nuclei_spi_wait(spi, NUCLEI_SPI_IP_RXWM, poll);
 
 			/* Read out all the data from the RX FIFO */
-			for (i = 0; i < n_words; i++)
+			NUCLEI_SPI_DEBUG("rx ");
+			for (i = 0; i < n_words; i++) {
+				rx_ptr2 = rx_ptr;
 				nuclei_spi_rx(spi, rx_ptr++);
+				NUCLEI_SPI_DEBUG("0x%x ", rx_ptr2[0]);
+			}
+			NUCLEI_SPI_DEBUG("\n");
+
 		} else {
 			/* Wait for transmission to complete */
 			nuclei_spi_wait(spi, NUCLEI_SPI_IP_TXWM, poll);
@@ -286,6 +376,7 @@ nuclei_spi_transfer_one(struct spi_master *master, struct spi_device *device,
 
 		remaining_words -= n_words;
 	}
+	NUCLEI_SPI_DEBUG("spi @0x%x nuclei_spi_transfer_one end\n", spi->regs);
 
 	return 0;
 }
@@ -386,6 +477,9 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	master->transfer_one = nuclei_spi_transfer_one;
 
 	pdev->dev.dma_mask = NULL;
+
+    /* probe nuclei spi features */
+    nuclei_spi_prope_feature(spi);
 	/* Configure the SPI master hardware */
 	nuclei_spi_init(spi);
 
