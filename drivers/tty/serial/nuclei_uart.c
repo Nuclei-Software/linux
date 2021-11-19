@@ -89,6 +89,9 @@
 #define NUCLEI_SERIAL_DIV_DIV_SHIFT		0
 #define NUCLEI_SERIAL_DIV_DIV_MASK		(0xffff << NUCLEI_SERIAL_IP_DIV_SHIFT)
 
+/* SETUP */
+#define NUCLEI_SERIAL_SETUP_OFFS		0x1c
+
 /*
  * Config macros
  */
@@ -992,6 +995,10 @@ static int nuclei_serial_probe(struct platform_device *pdev)
 	__ssp_writel((0 << NUCLEI_SERIAL_RXCTRL_RXCNT_SHIFT) |
 		     NUCLEI_SERIAL_RXCTRL_RXEN_MASK,
 		     NUCLEI_SERIAL_RXCTRL_OFFS, ssp);
+
+	/* TODO: adjust using driver data for UART_SETUP reg */
+	/* No partity check, 8 bit len, cts/rts disable, dma disable */
+	__ssp_writel(0x3<<4, NUCLEI_SERIAL_SETUP_OFFS, ssp);
 
 	r = request_irq(ssp->port.irq, nuclei_serial_irq, ssp->port.irqflags,
 			dev_name(&pdev->dev), ssp);
