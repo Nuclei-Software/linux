@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config NUCLEI_XEC
+	tristate "Nuclei Ethernet MAC"
+	select PHYLIB
+	select CRC32
+	help
+	  Say Y or M here if you want to use the Nuclei ethernet MAC.
+	  Also available as a module.
