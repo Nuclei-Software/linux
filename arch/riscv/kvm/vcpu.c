@@ -39,7 +39,8 @@ const struct kvm_stats_header kvm_vcpu_stats_header = {
 };
 
 #define KVM_RISCV_ISA_DISABLE_ALLOWED	(riscv_isa_extension_mask(d) | \
-					riscv_isa_extension_mask(f))
+					riscv_isa_extension_mask(f)  | \
+					riscv_isa_extension_mask(v))
 
 #define KVM_RISCV_ISA_DISABLE_NOT_ALLOWED	(riscv_isa_extension_mask(a) | \
 						riscv_isa_extension_mask(c) | \
