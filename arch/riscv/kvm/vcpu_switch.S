@@ -406,3 +406,72 @@ __kvm_riscv_fp_d_restore:
 	csrw CSR_SSTATUS, t2
 	ret
 #endif
+
+#ifdef CONFIG_VECTOR
+
+#define vstatep  a0
+#define datap    a1
+#define x_vstart t0
+#define x_vtype  t1
+#define x_vl     t2
+#define x_vcsr   t3
+#define incr     t4
+#define status   t5
+
+ENTRY(__kvm_riscv_vector_save)
+	li      status, SR_VS
+	csrs    CSR_STATUS, status
+
+	li	a2, KVM_ARCH_VECTOR_DATAP
+	add	datap, a0, a2
+	ld	datap, (datap)
+	csrr    x_vstart, CSR_VSTART
+	csrr    x_vtype, CSR_VTYPE
+	csrr    x_vl, CSR_VL
+	csrr    x_vcsr, CSR_VCSR
+	vsetvli incr, x0, e8, m8, ta, ma
+	vse8.v   v0, (datap)
+	add     datap, datap, incr
+	vse8.v   v8, (datap)
+	add     datap, datap, incr
+	vse8.v   v16, (datap)
+	add     datap, datap, incr
+	vse8.v   v24, (datap)
+
+	REG_S   x_vstart, KVM_ARCH_VECTOR_VSTART(vstatep)
+	REG_S   x_vtype, KVM_ARCH_VECTOR_VTYPE(vstatep)
+	REG_S   x_vl, KVM_ARCH_VECTOR_VL(vstatep)
+	REG_S   x_vcsr, KVM_ARCH_VECTOR_VCSR(vstatep)
+
+	csrc	CSR_STATUS, status
+	ret
+ENDPROC(__kvm_riscv_vector_save)
+
+ENTRY(__kvm_riscv_vector_restore)
+	li      status, SR_VS
+	csrs    CSR_STATUS, status
+
+	li	a2, KVM_ARCH_VECTOR_DATAP
+	add	datap, a0, a2
+	ld	datap, (datap)
+	vsetvli incr, x0, e8, m8, ta, ma
+	vle8.v   v0, (datap)
+	add     datap, datap, incr
+	vle8.v   v8, (datap)
+	add     datap, datap, incr
+	vle8.v   v16, (datap)
+	add     datap, datap, incr
+	vle8.v   v24, (datap)
+
+	REG_L   x_vstart, KVM_ARCH_VECTOR_VSTART(vstatep)
+	REG_L   x_vtype, KVM_ARCH_VECTOR_VTYPE(vstatep)
+	REG_L   x_vl, KVM_ARCH_VECTOR_VL(vstatep)
+	REG_L   x_vcsr, KVM_ARCH_VECTOR_VCSR(vstatep)
+	vsetvl  x0, x_vl, x_vtype
+	csrw    CSR_VSTART, x_vstart
+	csrw    CSR_VCSR, x_vcsr
+
+	csrc	CSR_STATUS, status
+	ret
+ENDPROC(__kvm_riscv_vector_restore)
+#endif

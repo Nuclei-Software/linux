@@ -14,6 +14,7 @@
 #include <linux/kvm_types.h>
 #include <asm/csr.h>
 #include <asm/kvm_vcpu_fp.h>
+#include <asm/kvm_vcpu_vector.h>
 #include <asm/kvm_vcpu_timer.h>
 
 #define KVM_MAX_VCPUS			\
@@ -122,6 +123,7 @@ struct kvm_cpu_context {
 	unsigned long sstatus;
 	unsigned long hstatus;
 	union __riscv_fp_state fp;
+	struct __riscv_v_state vector;
 };
 
 struct kvm_vcpu_csr {
