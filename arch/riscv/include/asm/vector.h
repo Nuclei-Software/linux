@@ -10,5 +10,8 @@
 
 void rvv_enable(void);
 void rvv_disable(void);
+void kernel_rvv_begin(void);
+void kernel_rvv_end(void);
+void vector_flush_cpu_state(void);
 
 #endif /* ! __ASM_RISCV_VECTOR_H */

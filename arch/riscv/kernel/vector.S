@@ -91,3 +91,12 @@ ENTRY(rvv_disable)
 	csrc	CSR_STATUS, status
 	ret
 ENDPROC(rvv_disable)
+
+ENTRY(vector_flush_cpu_state)
+	vsetvli t0, x0, e8, m8, ta, ma
+	vmv.v.i v0, 0
+	vmv.v.i v8, 0
+	vmv.v.i v16, 0
+	vmv.v.i v24, 0
+	ret
+ENDPROC(vector_flush_cpu_state)
