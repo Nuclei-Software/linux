@@ -129,12 +129,13 @@
  */
 
 /**
- * nuclei_serial_port - driver-specific data extension to struct uart_port
+ * struct nuclei_serial_port - driver-specific data extension to struct uart_port
  * @port: struct uart_port embedded in this struct
  * @dev: struct device *
  * @ier: shadowed copy of the interrupt enable register
  * @clkin_rate: input clock to the UART IP block.
  * @baud_rate: UART serial line rate (e.g., 115200 baud)
+ * @clk: reference to this device's clock
  * @clk_notifier: clock rate change notifier for upstream clock changes
  *
  * Configuration data specific to this Nuclei UART.
@@ -432,9 +433,7 @@ static void __ssp_receive_chars(struct nuclei_serial_port *ssp)
 		uart_insert_char(&ssp->port, 0, 0, ch, TTY_NORMAL);
 	}
 
-	spin_unlock(&ssp->port.lock);
 	tty_flip_buffer_push(&ssp->port.state->port);
-	spin_lock(&ssp->port.lock);
 }
 
 /**
@@ -742,7 +741,7 @@ static void nuclei_serial_poll_put_char(struct uart_port *port,
  */
 
 #ifdef CONFIG_SERIAL_EARLYCON
-static void early_nuclei_serial_putc(struct uart_port *port, int c)
+static void early_nuclei_serial_putc(struct uart_port *port, unsigned char c)
 {
 	while (__ssp_early_readl(port, NUCLEI_SERIAL_TXDATA_OFFS) &
 	       NUCLEI_SERIAL_TXDATA_FULL_MASK)
@@ -784,7 +783,7 @@ OF_EARLYCON_DECLARE(nuclei, "nuclei,uart0", early_nuclei_serial_setup);
 
 static struct nuclei_serial_port *nuclei_serial_console_ports[NUCLEI_SERIAL_MAX_PORTS];
 
-static void nuclei_serial_console_putchar(struct uart_port *port, int ch)
+static void nuclei_serial_console_putchar(struct uart_port *port, unsigned char ch)
 {
 	struct nuclei_serial_port *ssp = port_to_nuclei_serial_port(port);
 
@@ -871,7 +870,7 @@ static void __ssp_add_console_port(struct nuclei_serial_port *ssp)
 
 static void __ssp_remove_console_port(struct nuclei_serial_port *ssp)
 {
-	nuclei_serial_console_ports[ssp->port.line] = 0;
+	nuclei_serial_console_ports[ssp->port.line] = NULL;
 }
 
 #define NUCLEI_SERIAL_CONSOLE	(&nuclei_serial_console)
@@ -982,6 +981,7 @@ static int nuclei_serial_probe(struct platform_device *pdev)
 	/* Set up clock divider */
 	ssp->clkin_rate = clk_get_rate(ssp->clk);
 	ssp->baud_rate = NUCLEI_DEFAULT_BAUD_RATE;
+	ssp->port.uartclk = ssp->baud_rate * 16;
 	__ssp_update_div(ssp);
 
 	platform_set_drvdata(pdev, ssp);
