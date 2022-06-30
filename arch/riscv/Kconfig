@@ -345,7 +345,7 @@ config FPU
 
 config VECTOR
 	bool "VECTOR support"
-	depends on GCC_VERSION >= 120000 || CLANG_VERSION >= 130000
+	depends on GCC_VERSION >= 100000 || CLANG_VERSION >= 130000
 	default n
 	help
 	  Say N here if you want to disable all vector related procedure
