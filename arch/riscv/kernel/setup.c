@@ -16,6 +16,7 @@
 #include <linux/of_platform.h>
 #include <linux/sched/task.h>
 #include <linux/swiotlb.h>
+#include <asm/cacheflush.h>
 #include <linux/smp.h>
 #include <linux/efi.h>
 
@@ -107,6 +108,7 @@ void __init setup_arch(char **cmdline_p)
 #endif
 
 	riscv_fill_hwcap();
+	riscv_init_xxlccm_blocksize();
 }
 
 static int __init topology_init(void)

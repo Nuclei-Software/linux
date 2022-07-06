@@ -194,6 +194,14 @@ config PGTABLE_LEVELS
 config LOCKDEP_SUPPORT
 	def_bool y
 
+config RISCV_DMA_NONCOHERENT
+	bool
+	select ARCH_HAS_DMA_PREP_COHERENT
+	select ARCH_HAS_SYNC_DMA_FOR_DEVICE
+	select ARCH_HAS_SYNC_DMA_FOR_CPU
+	select ARCH_HAS_SETUP_DMA_OPS
+	select DMA_DIRECT_REMAP
+
 source "arch/riscv/Kconfig.socs"
 
 menu "Platform type"
@@ -329,6 +337,21 @@ config FPU
 	  in the kernel.
 
 	  If you don't know what to do here, say Y.
+
+config NUCLEI_RISCV_ISA_XXLCCM
+	bool "Nuclei CCM extension support for non-coherent DMA operation"
+	depends on !XIP_KERNEL
+	select RISCV_DMA_NONCOHERENT
+	default n
+	help
+	   Enable the support of Nuclei CCM extension if present.
+	   Nuclei CCM is Cache Control and Mantainence unit.
+
+	   The CCM/xlccm extension can be used to handle for example
+	   non-coherent DMA support on devices that need it.
+	   To use CCM in S/U mode, you need to set ccm_suen CSR in M-Mode.
+
+	   If your Nuclei RISC-V CPU has CCM module, say Y.
 
 endmenu
 
