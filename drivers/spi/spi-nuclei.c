@@ -23,7 +23,7 @@
 #define NUCLEI_SPI_DRIVER_NAME           "nuclei_spi"
 
 #define NUCLEI_SPI_MAX_CS                32
-#define NUCLEI_SPI_DEFAULT_DEPTH         8
+#define NUCLEI_SPI_DEFAULT_DEPTH         4
 #define NUCLEI_SPI_DEFAULT_MAX_BITS      8
 
 /* register offsets */
@@ -178,7 +178,12 @@ nuclei_spi_prepare_message(struct spi_master *master, struct spi_message *msg)
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_CSDEF, spi->cs_inactive);
 
 	/* Select the correct device */
-	nuclei_spi_write(spi, NUCLEI_SPI_REG_CSID, device->chip_select);
+	if ((spi->feature & NUCLEI_SPI_FEATURE_32B_DATA) == NUCLEI_SPI_FEATURE_32B_DATA) {
+		/* select device 0 using cs 1 for nuspi */
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CSID, device->chip_select + 1);
+	} else {
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CSID, device->chip_select);
+	}
 
 	/* Set clock mode */
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_SCKMODE,
