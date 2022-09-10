@@ -21,15 +21,15 @@
 #define NUCLEI_GPIO_INPUT_EN	0x04
 #define NUCLEI_GPIO_OUTPUT_EN	0x08
 #define NUCLEI_GPIO_OUTPUT_VAL	0x0C
-#define NUCLEI_GPIO_RISE_IE	0x18
-#define NUCLEI_GPIO_RISE_IP	0x1C
-#define NUCLEI_GPIO_FALL_IE	0x20
-#define NUCLEI_GPIO_FALL_IP	0x24
-#define NUCLEI_GPIO_HIGH_IE	0x28
-#define NUCLEI_GPIO_HIGH_IP	0x2C
-#define NUCLEI_GPIO_LOW_IE	0x30
-#define NUCLEI_GPIO_LOW_IP	0x34
-#define NUCLEI_GPIO_OUTPUT_XOR	0x40
+#define NUCLEI_GPIO_RISE_IE	0x24
+#define NUCLEI_GPIO_RISE_IP	0x28
+#define NUCLEI_GPIO_FALL_IE	0x2C
+#define NUCLEI_GPIO_FALL_IP	0x30
+#define NUCLEI_GPIO_HIGH_IE	0x34
+#define NUCLEI_GPIO_HIGH_IP	0x38
+#define NUCLEI_GPIO_LOW_IE	0x3C
+#define NUCLEI_GPIO_LOW_IP	0x40
+#define NUCLEI_GPIO_OUTPUT_XOR	0x58
 
 #define NUCLEI_GPIO_MAX		32
 #define NUCLEI_GPIO_IRQ_OFFSET	1
@@ -82,6 +82,7 @@ static void nuclei_gpio_irq_enable(struct irq_data *d)
 	int offset = irqd_to_hwirq(d) % NUCLEI_GPIO_MAX;
 	u32 bit = BIT(offset);
 	unsigned long flags;
+	unsigned int trigger;
 
 	irq_chip_enable_parent(d);
 
@@ -89,11 +90,16 @@ static void nuclei_gpio_irq_enable(struct irq_data *d)
 	gc->direction_input(gc, offset);
 
 	spin_lock_irqsave(&gc->bgpio_lock, flags);
+	trigger = chip->trigger[offset];
 	/* Clear any sticky pending interrupts */
-	regmap_write(chip->regs, NUCLEI_GPIO_RISE_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_FALL_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_HIGH_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_LOW_IP, bit);
+	if (trigger & IRQ_TYPE_EDGE_RISING)
+		regmap_update_bits(chip->regs, NUCLEI_GPIO_RISE_IP, bit, 0);
+	if (trigger & IRQ_TYPE_EDGE_FALLING)
+		regmap_update_bits(chip->regs, NUCLEI_GPIO_FALL_IP, bit, 0);
+	if (trigger & IRQ_TYPE_LEVEL_HIGH)
+		regmap_update_bits(chip->regs, NUCLEI_GPIO_HIGH_IP, bit, 0);
+	if (trigger & IRQ_TYPE_LEVEL_LOW)
+		regmap_update_bits(chip->regs, NUCLEI_GPIO_LOW_IP, bit, 0);
 	spin_unlock_irqrestore(&gc->bgpio_lock, flags);
 
 	/* Enable interrupts */
@@ -119,13 +125,20 @@ static void nuclei_gpio_irq_eoi(struct irq_data *d)
 	int offset = irqd_to_hwirq(d) % NUCLEI_GPIO_MAX;
 	u32 bit = BIT(offset);
 	unsigned long flags;
+	unsigned int trigger;
 
 	spin_lock_irqsave(&gc->bgpio_lock, flags);
 	/* Clear all pending interrupts */
-	regmap_write(chip->regs, NUCLEI_GPIO_RISE_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_FALL_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_HIGH_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_LOW_IP, bit);
+	trigger = chip->trigger[offset];
+	/* Clear any sticky pending interrupts */
+	if (trigger & IRQ_TYPE_EDGE_RISING)
+		regmap_update_bits(chip->regs, NUCLEI_GPIO_RISE_IP, bit, 0);
+	if (trigger & IRQ_TYPE_EDGE_FALLING)
+		regmap_update_bits(chip->regs, NUCLEI_GPIO_FALL_IP, bit, 0);
+	if (trigger & IRQ_TYPE_LEVEL_HIGH)
+		regmap_update_bits(chip->regs, NUCLEI_GPIO_HIGH_IP, bit, 0);
+	if (trigger & IRQ_TYPE_LEVEL_LOW)
+		regmap_update_bits(chip->regs, NUCLEI_GPIO_LOW_IP, bit, 0);
 	spin_unlock_irqrestore(&gc->bgpio_lock, flags);
 
 	irq_chip_eoi_parent(d);
@@ -148,7 +161,8 @@ static int nuclei_gpio_child_to_parent_hwirq(struct gpio_chip *gc,
 					     unsigned int *parent_type)
 {
 	*parent_type = IRQ_TYPE_NONE;
-	*parent = child + NUCLEI_GPIO_IRQ_OFFSET;
+	/* fsl gpio share INT1 */
+	*parent = 1;
 	return 0;
 }
 
@@ -220,6 +234,10 @@ static int nuclei_gpio_probe(struct platform_device *pdev)
 	regmap_write(chip->regs, NUCLEI_GPIO_FALL_IE, 0);
 	regmap_write(chip->regs, NUCLEI_GPIO_HIGH_IE, 0);
 	regmap_write(chip->regs, NUCLEI_GPIO_LOW_IE, 0);
+	regmap_write(chip->regs, NUCLEI_GPIO_RISE_IP, 0);
+	regmap_write(chip->regs, NUCLEI_GPIO_FALL_IP, 0);
+	regmap_write(chip->regs, NUCLEI_GPIO_HIGH_IP, 0);
+	regmap_write(chip->regs, NUCLEI_GPIO_LOW_IP, 0);
 	chip->irq_state = 0;
 
 	chip->gc.base = -1;
