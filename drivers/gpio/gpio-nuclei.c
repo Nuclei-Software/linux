@@ -209,7 +209,7 @@ static int nuclei_gpio_probe(struct platform_device *pdev)
 			 NULL,
 			 chip->base + NUCLEI_GPIO_OUTPUT_EN,
 			 chip->base + NUCLEI_GPIO_INPUT_EN,
-			 0);
+			 BGPIOF_READ_OUTPUT_REG_SET);
 	if (ret) {
 		dev_err(dev, "unable to init generic GPIO\n");
 		return ret;
