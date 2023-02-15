@@ -2,22 +2,11 @@
 /*
  * Nuclei UART driver
  * Copyright (C) 2018 Paul Walmsley <paul@pwsan.com>
- * Copyright (C) 2018-2019 SiFive
+ * Copyright (C) 2018-2019 Nuclei
  * Copyright (C) 2021 Nuclei
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  *
  * Based partially on:
  * - drivers/tty/serial/sifive.c
- *
  */
 
 #include <linux/clk.h>
@@ -129,12 +118,12 @@
  */
 
 /**
- * nuclei_serial_port - driver-specific data extension to struct uart_port
+ * struct nuclei_serial_port - driver-specific data extension to struct uart_port
  * @port: struct uart_port embedded in this struct
  * @dev: struct device *
  * @ier: shadowed copy of the interrupt enable register
- * @clkin_rate: input clock to the UART IP block.
  * @baud_rate: UART serial line rate (e.g., 115200 baud)
+ * @clk: reference to this device's clock
  * @clk_notifier: clock rate change notifier for upstream clock changes
  *
  * Configuration data specific to this Nuclei UART.
@@ -143,7 +132,6 @@ struct nuclei_serial_port {
 	struct uart_port	port;
 	struct device		*dev;
 	unsigned char		ier;
-	unsigned long		clkin_rate;
 	unsigned long		baud_rate;
 	struct clk		*clk;
 	struct notifier_block	clk_notifier;
@@ -432,9 +420,7 @@ static void __ssp_receive_chars(struct nuclei_serial_port *ssp)
 		uart_insert_char(&ssp->port, 0, 0, ch, TTY_NORMAL);
 	}
 
-	spin_unlock(&ssp->port.lock);
 	tty_flip_buffer_push(&ssp->port.state->port);
-	spin_lock(&ssp->port.lock);
 }
 
 /**
@@ -449,7 +435,7 @@ static void __ssp_update_div(struct nuclei_serial_port *ssp)
 {
 	u16 div;
 
-	div = DIV_ROUND_UP(ssp->clkin_rate, ssp->baud_rate) - 1;
+	div = DIV_ROUND_UP(ssp->port.uartclk, ssp->baud_rate) - 1;
 
 	__ssp_writel(div, NUCLEI_SERIAL_DIV_OFFS, ssp);
 }
@@ -634,8 +620,8 @@ static int nuclei_serial_clk_notifier(struct notifier_block *nb,
 		udelay(DIV_ROUND_UP(12 * 1000 * 1000, ssp->baud_rate));
 	}
 
-	if (event == POST_RATE_CHANGE && ssp->clkin_rate != cnd->new_rate) {
-		ssp->clkin_rate = cnd->new_rate;
+	if (event == POST_RATE_CHANGE && ssp->port.uartclk != cnd->new_rate) {
+		ssp->port.uartclk = cnd->new_rate;
 		__ssp_update_div(ssp);
 	}
 
@@ -644,7 +630,7 @@ static int nuclei_serial_clk_notifier(struct notifier_block *nb,
 
 static void nuclei_serial_set_termios(struct uart_port *port,
 				      struct ktermios *termios,
-				      struct ktermios *old)
+				      const struct ktermios *old)
 {
 	struct nuclei_serial_port *ssp = port_to_nuclei_serial_port(port);
 	unsigned long flags;
@@ -652,19 +638,24 @@ static void nuclei_serial_set_termios(struct uart_port *port,
 	int rate;
 	char nstop;
 
-	if ((termios->c_cflag & CSIZE) != CS8)
+	if ((termios->c_cflag & CSIZE) != CS8) {
 		dev_err_once(ssp->port.dev, "only 8-bit words supported\n");
+		termios->c_cflag &= ~CSIZE;
+		termios->c_cflag |= CS8;
+	}
 	if (termios->c_iflag & (INPCK | PARMRK))
 		dev_err_once(ssp->port.dev, "parity checking not supported\n");
 	if (termios->c_iflag & BRKINT)
 		dev_err_once(ssp->port.dev, "BREAK detection not supported\n");
+	termios->c_iflag &= ~(INPCK|PARMRK|BRKINT);
 
 	/* Set number of stop bits */
 	nstop = (termios->c_cflag & CSTOPB) ? 2 : 1;
 	__ssp_set_stop_bits(ssp, nstop);
 
 	/* Set line rate */
-	rate = uart_get_baud_rate(port, termios, old, 0, ssp->clkin_rate / 16);
+	rate = uart_get_baud_rate(port, termios, old, 0,
+				  ssp->port.uartclk / 16);
 	__ssp_update_baud_rate(ssp, rate);
 
 	spin_lock_irqsave(&ssp->port.lock, flags);
@@ -711,7 +702,7 @@ static int nuclei_serial_verify_port(struct uart_port *port,
 
 static const char *nuclei_serial_type(struct uart_port *port)
 {
-	return port->type == PORT_NUCLEI ? "Nuclei UART/USART" : NULL;
+	return port->type == PORT_NUCLEI ? "Nuclei UART v0" : NULL;
 }
 
 #ifdef CONFIG_CONSOLE_POLL
@@ -742,7 +733,7 @@ static void nuclei_serial_poll_put_char(struct uart_port *port,
  */
 
 #ifdef CONFIG_SERIAL_EARLYCON
-static void early_nuclei_serial_putc(struct uart_port *port, int c)
+static void early_nuclei_serial_putc(struct uart_port *port, unsigned char c)
 {
 	while (__ssp_early_readl(port, NUCLEI_SERIAL_TXDATA_OFFS) &
 	       NUCLEI_SERIAL_TXDATA_FULL_MASK)
@@ -784,7 +775,7 @@ OF_EARLYCON_DECLARE(nuclei, "nuclei,uart0", early_nuclei_serial_setup);
 
 static struct nuclei_serial_port *nuclei_serial_console_ports[NUCLEI_SERIAL_MAX_PORTS];
 
-static void nuclei_serial_console_putchar(struct uart_port *port, int ch)
+static void nuclei_serial_console_putchar(struct uart_port *port, unsigned char ch)
 {
 	struct nuclei_serial_port *ssp = port_to_nuclei_serial_port(port);
 
@@ -871,7 +862,7 @@ static void __ssp_add_console_port(struct nuclei_serial_port *ssp)
 
 static void __ssp_remove_console_port(struct nuclei_serial_port *ssp)
 {
-	nuclei_serial_console_ports[ssp->port.line] = 0;
+	nuclei_serial_console_ports[ssp->port.line] = NULL;
 }
 
 #define NUCLEI_SERIAL_CONSOLE	(&nuclei_serial_console)
@@ -936,7 +927,7 @@ static int nuclei_serial_probe(struct platform_device *pdev)
 		return PTR_ERR(base);
 	}
 
-	clk = devm_clk_get(&pdev->dev, NULL);
+	clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(clk)) {
 		dev_err(&pdev->dev, "unable to find controller clock\n");
 		return PTR_ERR(clk);
@@ -980,9 +971,8 @@ static int nuclei_serial_probe(struct platform_device *pdev)
 	}
 
 	/* Set up clock divider */
-	ssp->clkin_rate = clk_get_rate(ssp->clk);
+	ssp->port.uartclk = clk_get_rate(ssp->clk);
 	ssp->baud_rate = NUCLEI_DEFAULT_BAUD_RATE;
-	ssp->port.uartclk = ssp->clkin_rate;
 	__ssp_update_div(ssp);
 
 	platform_set_drvdata(pdev, ssp);
@@ -1085,4 +1075,4 @@ module_exit(nuclei_serial_exit);
 
 MODULE_DESCRIPTION("Nuclei UART serial driver");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Nuclei System Technology<contact@nucleisys.com>");
+MODULE_AUTHOR("Paul Walmsley <paul@pwsan.com>, Nuclei System Technology<contact@nucleisys.com>");
