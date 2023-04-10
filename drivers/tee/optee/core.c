@@ -21,6 +21,7 @@
 #include "optee_private.h"
 #include "optee_smc.h"
 #include "shm_pool.h"
+#include <asm/sbi.h>
 
 #define DRIVER_NAME "optee"
 
@@ -550,7 +551,19 @@ static void optee_smccc_smc(unsigned long a0, unsigned long a1,
 			    unsigned long a6, unsigned long a7,
 			    struct arm_smccc_res *res)
 {
+#ifndef CONFIG_RISCV
 	arm_smccc_smc(a0, a1, a2, a3, a4, a5, a6, a7, res);
+#else
+	struct sbiret ret;
+	/* a0:fid, a1~a6 as parameter*/
+	ret = sbi_ecall(SBI_EXT_OPTEE, a0, a1, a2, a3, a4, a5, a6);
+	/* riscv ecall return value only use (a0,a1),
+	 * but arm use a0,a1,a2,a3, need to be check!*/
+	res->a0 = ret.error;
+	res->a1 = ret.value;
+	res->a2 = ret.extp1;
+	res->a3 = ret.extp2;
+#endif
 }
 
 static void optee_smccc_hvc(unsigned long a0, unsigned long a1,
@@ -559,7 +572,9 @@ static void optee_smccc_hvc(unsigned long a0, unsigned long a1,
 			    unsigned long a6, unsigned long a7,
 			    struct arm_smccc_res *res)
 {
+#ifndef CONFIG_RISCV
 	arm_smccc_hvc(a0, a1, a2, a3, a4, a5, a6, a7, res);
+#endif
 }
 
 static optee_invoke_fn *get_invoke_func(struct device *dev)
@@ -625,7 +640,7 @@ static int optee_probe(struct platform_device *pdev)
 	invoke_fn = get_invoke_func(&pdev->dev);
 	if (IS_ERR(invoke_fn))
 		return PTR_ERR(invoke_fn);
-
+#ifndef CONFIG_RISCV
 	if (!optee_msg_api_uid_is_optee_api(invoke_fn)) {
 		pr_warn("api uid mismatch\n");
 		return -EINVAL;
@@ -648,7 +663,9 @@ static int optee_probe(struct platform_device *pdev)
 	 */
 	if (sec_caps & OPTEE_SMC_SEC_CAP_DYNAMIC_SHM)
 		pool = optee_config_dyn_shm();
-
+#else
+	sec_caps |= OPTEE_SMC_SEC_CAP_HAVE_RESERVED_SHM;
+#endif
 	/*
 	 * If dynamic shared memory is not available or failed - try static one
 	 */

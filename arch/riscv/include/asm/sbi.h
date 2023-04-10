@@ -27,6 +27,7 @@ enum sbi_ext_id {
 	SBI_EXT_IPI = 0x735049,
 	SBI_EXT_RFENCE = 0x52464E43,
 	SBI_EXT_HSM = 0x48534D,
+	SBI_EXT_OPTEE = 0x4F505445,
 };
 
 enum sbi_ext_base_fid {
@@ -87,6 +88,8 @@ extern unsigned long sbi_spec_version;
 struct sbiret {
 	long error;
 	long value;
+	long extp1;
+	long extp2;
 };
 
 int sbi_init(void);
