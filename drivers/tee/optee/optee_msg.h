@@ -407,7 +407,8 @@ struct optee_msg_arg {
 #define OPTEE_MSG_RPC_SHM_TYPE_APPL	0
 /* Memory only shared with non-secure kernel */
 #define OPTEE_MSG_RPC_SHM_TYPE_KERNEL	1
-
+/* Memory shared with non-secure kernel, but exported to userspace */
+#define OPTEE_MSG_RPC_SHM_TYPE_GLOBAL	2
 /*
  * Free shared memory previously allocated with OPTEE_MSG_RPC_CMD_SHM_ALLOC
  *
@@ -418,6 +419,15 @@ struct optee_msg_arg {
  *					above
  */
 #define OPTEE_MSG_RPC_CMD_SHM_FREE	7
+
+/*
+ * Register timestamp buffer
+ *
+ * [in] param[0].u.value.a	Subcommand (register buffer, unregister buffer)
+ * [in] param[0].u.value.b	Physical address of timestamp buffer
+ * [in] param[0].u.value.c	Size of buffer
+ */
+#define OPTEE_MSG_RPC_CMD_BENCH_REG		20
 
 /*
  * Access a device on an i2c bus

@@ -18,6 +18,7 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
+#include "optee_bench.h"
 #include "optee_private.h"
 #include "optee_smc.h"
 #include "shm_pool.h"
@@ -623,6 +624,7 @@ static int optee_remove(struct platform_device *pdev)
 	mutex_destroy(&optee->call_queue.mutex);
 
 	kfree(optee);
+	optee_bm_disable();
 
 	return 0;
 }
@@ -727,6 +729,8 @@ static int optee_probe(struct platform_device *pdev)
 	}
 
 	pr_info("initialized driver\n");
+	optee_bm_enable();
+
 	return 0;
 err:
 	if (optee) {
