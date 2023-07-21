@@ -755,9 +755,15 @@ static int __init early_nuclei_serial_setup(struct earlycon_device *dev,
 					    const char *options)
 {
 	struct uart_port *port = &dev->port;
+	u16 div;
 
 	if (!port->membase)
 		return -ENODEV;
+    // Enable TX
+	__ssp_early_writel(NUCLEI_SERIAL_TXCTRL_TXEN_MASK, NUCLEI_SERIAL_TXCTRL_OFFS, port);
+    // Setup baudrate to cpu freq defined at node clock-frequency and baud defined at node current-speed
+	div = DIV_ROUND_UP(port->uartclk, dev->baud) - 1;
+	__ssp_early_writel(div, NUCLEI_SERIAL_DIV_OFFS, port);
 
 	dev->con->write = early_nuclei_serial_write;
 
