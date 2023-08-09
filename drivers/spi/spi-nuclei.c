@@ -358,7 +358,14 @@ nuclei_spi_transfer_one(struct spi_master *master, struct spi_device *device,
 		/* Enqueue n_words for transmission */
 		for (i = 0; i < n_words; i++)
 			nuclei_spi_tx(spi, tx_ptr++);
-
+		/* Wait tx send finished to fixup spi rxfifo
+		 * empty problem when nuclei_spi_rx called
+		 */
+		if (!poll && (spi->feature & NUCLEI_SPI_FEATURE_32B_DATA) != 0) {
+			while((nuclei_spi_read(spi, NUCLEI_SPI_REG_STATUS)
+					& NUCLEI_SPI_STATUS_BUSY_FLAG) != 0);
+			asm volatile("fence");
+		}
 		if (rx_ptr) {
 			/* Wait for transmission + reception to complete */
 			nuclei_spi_write(spi, NUCLEI_SPI_REG_RXMARK,
