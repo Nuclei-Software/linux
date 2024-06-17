@@ -716,6 +716,13 @@ config PORTABLE
 	select OF
 	select MMU
 
+config NUCLEI_RDTIME_WORKAROUND
+	bool
+	default y
+	help
+	  This config is used to workaround rdtime return error value issue
+	  on Nuclei 900 core series.
+
 menu "Power management options"
 
 source "kernel/power/Kconfig"
