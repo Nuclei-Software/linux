@@ -50,7 +50,19 @@ static inline unsigned long random_get_entropy(void)
 
 static inline cycles_t get_cycles(void)
 {
+#if defined(CONFIG_NUCLEI_RDTIME_WORKAROUND) && defined(CONFIG_64BIT)
+	u64 tmp;
+	cycles_t ret;
+
+	tmp = csr_read(CSR_STATUS);
+	csr_write(CSR_STATUS, (tmp & ~(SR_UXL)) | SR_UXL_64);
+	ret = csr_read(CSR_TIME);
+	csr_write(CSR_STATUS, tmp);
+
+	return ret;
+#else
 	return csr_read(CSR_TIME);
+#endif
 }
 #define get_cycles get_cycles
 
