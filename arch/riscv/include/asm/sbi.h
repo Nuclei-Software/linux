@@ -30,6 +30,7 @@ enum sbi_ext_id {
 	SBI_EXT_HSM = 0x48534D,
 	SBI_EXT_SRST = 0x53525354,
 	SBI_EXT_PMU = 0x504D55,
+	SBI_EXT_OPTEE = 0x4F505445,
 
 	/* Experimentals extensions must lie within this range */
 	SBI_EXT_EXPERIMENTAL_START = 0x08000000,
@@ -256,6 +257,8 @@ extern unsigned long sbi_spec_version;
 struct sbiret {
 	long error;
 	long value;
+	long extp1;
+	long extp2;
 };
 
 void sbi_init(void);
