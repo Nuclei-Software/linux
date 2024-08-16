@@ -24,3 +24,10 @@ config OPTEE_INSECURE_LOAD_IMAGE
 
 	  Additional documentation on kernel security risks are at
 	  Documentation/staging/tee.rst.
+
+config OPTEE_BENCHMARK
+	bool "OP-TEE Benchmark (EXPERIMENTAL)"
+	depends on OPTEE
+	help
+	  This enables benchmarking feature in the OP-TEE Trusted
+	  Execution Environment (TEE) driver.

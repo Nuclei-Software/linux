@@ -32,7 +32,8 @@
 #include <linux/kmemleak.h>
 #define CREATE_TRACE_POINTS
 #include "optee_trace.h"
-
+#include "optee_bench.h"
+#include <asm/sbi.h>
 /*
  * This file implement the SMC ABI used when communicating with secure world
  * OP-TEE OS via raw SMCs.
@@ -665,6 +666,7 @@ static void handle_rpc_func_cmd_shm_free(struct tee_context *ctx,
 		optee_rpc_cmd_free_suppl(ctx, shm);
 		break;
 	case OPTEE_RPC_SHM_TYPE_KERNEL:
+	case OPTEE_RPC_SHM_TYPE_GLOBAL:
 		tee_shm_free(shm);
 		break;
 	default:
@@ -704,6 +706,9 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 		shm = optee_rpc_cmd_alloc_suppl(ctx, sz);
 		break;
 	case OPTEE_RPC_SHM_TYPE_KERNEL:
+		shm = tee_shm_alloc_priv_buf(optee->ctx, sz);
+		break;
+	case OPTEE_RPC_SHM_TYPE_GLOBAL:
 		shm = tee_shm_alloc_priv_buf(optee->ctx, sz);
 		break;
 	default:
@@ -770,6 +775,51 @@ bad:
 	tee_shm_free(shm);
 }
 
+static void handle_rpc_func_cmd_bm_reg(struct optee_msg_arg *arg)
+{
+	u64 size;
+	u64 type;
+	u64 paddr;
+
+	if (arg->num_params != 1)
+		goto bad;
+
+	if ((arg->params[0].attr & OPTEE_MSG_ATTR_TYPE_MASK) !=
+			OPTEE_MSG_ATTR_TYPE_VALUE_INPUT)
+		goto bad;
+
+	type = arg->params[0].u.value.a;
+	switch (type) {
+		case OPTEE_RPC_CMD_BENCH_REG_NEW:
+			size = arg->params[0].u.value.c;
+			paddr = arg->params[0].u.value.b;
+			down_write(&optee_bench_ts_rwsem);
+			optee_bench_ts_global =
+				memremap(paddr, size, MEMREMAP_WB);
+			if (!optee_bench_ts_global) {
+				up_write(&optee_bench_ts_rwsem);
+				goto bad;
+			}
+			up_write(&optee_bench_ts_rwsem);
+			break;
+		case OPTEE_RPC_CMD_BENCH_REG_DEL:
+			down_write(&optee_bench_ts_rwsem);
+			if (optee_bench_ts_global)
+				memunmap(optee_bench_ts_global);
+			optee_bench_ts_global = NULL;
+			up_write(&optee_bench_ts_rwsem);
+			break;
+		default:
+			goto bad;
+	}
+
+	arg->ret = TEEC_SUCCESS;
+	return;
+bad:
+	arg->ret = TEEC_ERROR_BAD_PARAMETERS;
+}
+
+
 static void free_pages_list(struct optee_call_ctx *call_ctx)
 {
 	if (call_ctx->pages_list) {
@@ -797,6 +847,9 @@ static void handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
 		break;
 	case OPTEE_RPC_CMD_SHM_FREE:
 		handle_rpc_func_cmd_shm_free(ctx, arg);
+		break;
+	case OPTEE_RPC_CMD_BENCH_REG:
+		handle_rpc_func_cmd_bm_reg(arg);
 		break;
 	default:
 		optee_rpc_cmd(ctx, optee, arg);
@@ -931,9 +984,11 @@ static int optee_smc_do_call_with_arg(struct tee_context *ctx,
 		struct arm_smccc_res res;
 
 		trace_optee_invoke_fn_begin(&param);
+		optee_bm_timestamp();
 		optee->smc.invoke_fn(param.a0, param.a1, param.a2, param.a3,
 				     param.a4, param.a5, param.a6, param.a7,
 				     &res);
+		optee_bm_timestamp();
 		trace_optee_invoke_fn_end(&param, &res);
 
 		if (res.a0 == OPTEE_SMC_RETURN_ETHREAD_LIMIT) {
@@ -1484,6 +1539,7 @@ static int optee_smc_remove(struct platform_device *pdev)
 		memunmap(optee->smc.memremaped_shm);
 
 	kfree(optee);
+	optee_bm_disable();
 
 	return 0;
 }
@@ -1801,6 +1857,7 @@ static int optee_probe(struct platform_device *pdev)
 	if (rc)
 		goto err_disable_shm_cache;
 
+	optee_bm_enable();
 	pr_info("initialized driver\n");
 	return 0;
 
