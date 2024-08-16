@@ -15,9 +15,9 @@ LIB_INSTDIR=$4
 SCRIPTDIR=$(dirname $(readlink -f $BASH_SOURCE))
 SCRIPTDIR=$(readlink -f $SCRIPTDIR)
 
-ZLIB_SRCDIR=$(readlink -f $SCRIPTDIR/../../zlib)
-ELFUTILS_SRCDIR=$(readlink -f $SCRIPTDIR/../../elfutils)
-LIBTRACEEVENT_SRCDIR=$(readlink -f $SCRIPTDIR/../../libtraceevent)
+ZLIB_SRCDIR=$(readlink -f $SCRIPTDIR/../../../zlib)
+ELFUTILS_SRCDIR=$(readlink -f $SCRIPTDIR/../../../elfutils)
+LIBTRACEEVENT_SRCDIR=$(readlink -f $SCRIPTDIR/../../../libtraceevent)
 
 ARCHABI_FLAGS="-march=$ARCH -mabi=$ABI"
 
