@@ -16,6 +16,17 @@ SCRIPTDIR=$(readlink -f $SCRIPTDIR)
 
 ARCHABI_FLAGS="-march=$ARCH -mabi=$ABI"
 
+function create_env {
+    local instdir=$1
+
+    echo "Generate perf environment script to $instdir/env.sh"
+    touch $instdir/env.sh
+    echo "SCRIPTDIR=\$(dirname \$(readlink -f \$BASH_SOURCE))" >> $instdir/env.sh
+    echo "SCRIPTDIR=\$(readlink -f \$SCRIPTDIR)" >> $instdir/env.sh
+    echo "export PATH=\$SCRIPTDIR/bin/:\$PATH"  >> $instdir/env.sh
+    echo "export LD_LIBRARY_PATH=\$SCRIPTDIR/lib/:\$LD_LIBRARY_PATH"  >> $instdir/env.sh
+}
+
 function build_perf {
     local srcdir=$1
     local instdir=$2
@@ -38,6 +49,7 @@ fi
 INSTDIR=$(readlink -f $INSTDIR)
 
 build_perf $(pwd) $INSTDIR
+create_env $INSTDIR
 
 popd
 
