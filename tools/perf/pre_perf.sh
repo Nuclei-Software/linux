@@ -62,10 +62,12 @@ function build_libtraceevent {
 
 pushd $SCRIPTDIR
 
-if [ ! -d ${LIB_INSTDIR} ] ; then
-    echo "${LIB_INSTDIR} not exist! create it now!"
-    mkdir -p $LIB_INSTDIR
+if [ -d ${LIB_INSTDIR} ] ; then
+    echo "${LIB_INSTDIR} already exist! remove it now!"
+    rm -rf $LIB_INSTDIR
 fi
+
+mkdir -p $LIB_INSTDIR
 
 LIB_INSTDIR=$(readlink -f $LIB_INSTDIR)
 
