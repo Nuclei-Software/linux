@@ -11,6 +11,8 @@ ARCH=$2
 ABI=$3
 INSTDIR=$4
 
+STATIC_BUILD=${STATIC_BUILD:-1}
+
 SCRIPTDIR=$(dirname $(readlink -f $BASH_SOURCE))
 SCRIPTDIR=$(readlink -f $SCRIPTDIR)
 
@@ -33,9 +35,13 @@ function build_perf {
     echo "Build Linux Tool Perf"
     pushd $srcdir
     local srctree=$(readlink -f $(pwd)/../../)
+
+    if [ "x${STATIC_BUILD}" == "x1" ] ; then
+        EXT_LDFLAGS="-static "
+    fi
     make srctree=$srctree ARCH=riscv CROSS_COMPILE=${CROSS_COMPILE}- LDFLAGS="${ARCHABI_FLAGS} -L${instdir}/lib -lz" EXTRA_CFLAGS="${ARCHABI_FLAGS} -I${instdir}/include" CXXFLAGS="${ARCHABI_FLAGS} -I${instdir}/include"  DESTDIR=$instdir clean
     # need extra ldflags -lz to check libelf
-    make srctree=$srctree ARCH=riscv CROSS_COMPILE=${CROSS_COMPILE}- LDFLAGS="${ARCHABI_FLAGS} -L${instdir}/lib -lz" EXTRA_CFLAGS="${ARCHABI_FLAGS} -I${instdir}/include" CXXFLAGS="${ARCHABI_FLAGS} -I${instdir}/include"  DESTDIR=$instdir install
+    make srctree=$srctree ARCH=riscv CROSS_COMPILE=${CROSS_COMPILE}- LDFLAGS="${EXT_LDFLAGS} ${ARCHABI_FLAGS} -L${instdir}/lib -lz" EXTRA_CFLAGS="${ARCHABI_FLAGS} -I${instdir}/include" CXXFLAGS="${ARCHABI_FLAGS} -I${instdir}/include"  DESTDIR=$instdir install
     popd
 }
 
