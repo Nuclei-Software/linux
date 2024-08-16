@@ -72,6 +72,9 @@
 /* Memory only shared with non-secure kernel */
 #define OPTEE_RPC_SHM_TYPE_KERNEL	1
 
+/* Memory shared with non-secure kernel, but exported to userspace */
+#define OPTEE_RPC_SHM_TYPE_GLOBAL	2
+
 /*
  * Free shared memory previously allocated with OPTEE_RPC_CMD_SHM_ALLOC
  *
@@ -80,6 +83,15 @@
  * [in]     value[0].b	    Value of shared memory reference or cookie
  */
 #define OPTEE_RPC_CMD_SHM_FREE		7
+
+/*
+ * Register timestamp buffer
+ *
+ * [in] param[0].u.value.a	Subcommand (register buffer, unregister buffer)
+ * [in] param[0].u.value.b	Physical address of timestamp buffer
+ * [in] param[0].u.value.c	Size of buffer
+ */
+#define OPTEE_RPC_CMD_BENCH_REG		20
 
 /*
  * Issue master requests (read and write operations) to an I2C chip.
