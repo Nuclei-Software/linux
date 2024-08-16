@@ -41,7 +41,9 @@ function build_elfutils {
     pushd $srcdir
     autoreconf -i -f
     rm -rf install
-    CFLAGS="${ARCHABI_FLAGS}" CXXFLAGS="${ARCHABI_FLAGS}" LDFLAGS="${ARCHABI_FLAGS} -L${instdir}/lib" CPPFLAGS="-I${instdir}/include" ./configure --host=${CROSS_COMPILE} --prefix=$(pwd)/install --disable-libdebuginfod --enable-maintainer-mode  --disable-debuginfod
+    # --disable-demangler is required for rv32
+    # CFLAGS/CXXFLAGS/CPPFLAGS/LDFLAGS need to passed after ./configure, not passed before ./configure
+    ./configure --host=${CROSS_COMPILE} --prefix=$(pwd)/install --disable-libdebuginfod --enable-maintainer-mode  --disable-debuginfod --disable-demangler CFLAGS="${ARCHABI_FLAGS}" CXXFLAGS="${ARCHABI_FLAGS}" LDFLAGS="${ARCHABI_FLAGS} -L${instdir}/lib" CPPFLAGS="-I${instdir}/include"
     make clean
     make -j install
     cp -rf install/* ${instdir}/
