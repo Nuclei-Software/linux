@@ -1681,6 +1681,7 @@ static int optee_probe(struct platform_device *pdev)
 		pool = optee_shm_pool_alloc_pages();
 	}
 #else
+	max_notif_value = OPTEE_DEFAULT_MAX_NOTIF_VALUE;
 	sec_caps |= OPTEE_SMC_SEC_CAP_HAVE_RESERVED_SHM;
 #endif
 	/*
