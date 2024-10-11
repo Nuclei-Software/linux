@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
+ * based on drivers/net/ethernet/nxp/lpc_eth.c
  *
- * Author: Huaqi Fang <hqfang@nucleisys.com>
- *
- * Copyright (C) 2021 Nuclei
+ * Copyright (C) 2023 Nuclei
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
-
-// Uncomment to enable xec debug messages
-// #define DEBUG
 
 #include <linux/clk.h>
 #include <linux/crc32.h>
@@ -23,309 +19,150 @@
 #include <linux/spinlock.h>
 
 #define MODNAME "nuclei-xec"
-#define DRV_VERSION "1.00"
+#define DRV_VERSION "2.00"
 
-#define ENET_MAXF_SIZE 1536
-#define ENET_RX_DESC 32
-#define ENET_TX_DESC 32
+#define ENET_MAXF_SIZE            1536
+#define ENET_RX_DESC              256
+#define ENET_TX_DESC              64
 
-#define NAPI_WEIGHT 16
+#define NAPI_WEIGHT               64
 
+#define lower32(x)                ((u32)((x) & 0xffffffff))
+#define upper32(x)                ((u32)(((u64)(x) >> 32) & 0xffffffff))
 
-/*
- * XEC IOC Register offsets
- */
-#define XEC_IOC_ID(base)			(base + 0x000)
-#define XEC_IOC_VERSION(base)			(base + 0x004)
-#define XEC_IOC_CONFIG(base)			(base + 0x008)
-#define XEC_IOC_SYS_RD_CONFIG(base)		(base + 0x00C)
-#define XEC_IOC_SYS_WR_CONFIG(base)		(base + 0x010)
-#define XEC_IOC_TX_CONFIG(base)			(base + 0x014)
-#define XEC_IOC_RX_CONFIG(base)			(base + 0x018)
+#define XEC_RRD_UPDT              (1 << 31)
 
-/*
- * XEC IOC Channel Register offsets
- */
-#define XEC_IOC_CH_TX_CTRL(base)		(base + 0x000)
-#define XEC_IOC_CH_RX_CTRL(base)		(base + 0x004)
-#define XEC_IOC_CH_TX_LIST_HADDR(base)		(base + 0x008)
-#define XEC_IOC_CH_TX_LIST_LADDR(base)		(base + 0x00C)
-#define XEC_IOC_CH_RX_LIST_HADDR(base)		(base + 0x010)
-#define XEC_IOC_CH_RX_LIST_LADDR(base)		(base + 0x014)
-#define XEC_IOC_CH_TX_TAIL_POINTER(base)	(base + 0x018)
-#define XEC_IOC_CH_RX_TAIL_POINTER(base)	(base + 0x01C)
-#define XEC_IOC_CH_INTERRUPT_ENABLE(base)	(base + 0x020)
-#define XEC_IOC_CH_INTERRUPT(base)		(base + 0x024)
-#define XEC_IOC_CH_TX_HEAD_POINTER(base)	(base + 0x028)
-#define XEC_IOC_CH_RX_HEAD_POINTER(base)	(base + 0x02C)
+/* xec register define */
+#define XEC_CTRL(x)               (x + 0x0)
+#define XEC_IPG(x)                (x + 0x4)
+#define XEC_HALF_CTRL(x)          (x + 0x8)
+#define XEC_MTU(x)                (x + 0xC)
+#define XEC_STAD_LO(x)            (x + 0x10)
+#define XEC_STAD_HI(x)            (x + 0x14)
+#define XEC_LPI(x)                (x + 0x18)
+#define XEC_HASH_TAB_LO(x)        (x + 0x1C)
+#define XEC_HASH_TAB_HI(x)        (x + 0x20)
+#define XEC_SRAM_CTRL6(x)         (x + 0x38)
+#define XEC_DESC_CTRL1(x)         (x + 0x3C)
+#define XEC_DESC_CTRL2(x)         (x + 0x40)
+#define XEC_DESC_CTRL3(x)         (x + 0x44)
+#define XEC_DESC_CTRL4(x)         (x + 0x48)
+#define XEC_DESC_CTRL5(x)         (x + 0x4C)
+#define XEC_DESC_CTRL6(x)         (x + 0x50)
+#define XEC_DESC_CTRL7(x)         (x + 0x54)
+#define XEC_CMB_ADDR_HI(x)        (x + 0x58)
+#define XEC_CMB_ADDR_LO(x)        (x + 0x5C)
+#define XEC_DMA_BURST_CTRL1(x)    (x + 0x60)
+#define XEC_DMA_BURST_CTRL2(x)    (x + 0x64)
+#define XEC_FLOW_CTRL_WM(x)       (x + 0x68)
+#define XEC_CMB_CTRL(x)           (x + 0x6C)
+#define XEC_MAILBOX1(x)           (x + 0x70)
+#define XEC_MAILBOX2(x)           (x + 0x74)
+#define XEC_INT_STATUS(x)         (x + 0x78)
+#define XEC_INT_MASK(x)           (x + 0x7C)
+#define XEC_INT_TIMER2(x)         (x + 0x80)
+/* RX statistics info */
+#define XEC_RX_OK(x)              (x + 0x84)
+#define XEC_RX_BCAST(x)           (x + 0x88)
+#define XEC_RX_MCAST(x)           (x + 0x8C)
+#define XEC_RX_PAUSE(x)           (x + 0x90)
 
-/*
- * XEC MAC Register offsets
- */
-#define XEC_MAC_ID(base)			(base + 0x000)
-#define XEC_MAC_VERSION(base)			(base + 0x004)
-#define XEC_MAC_ADDR_LO(base)			(base + 0x008)
-#define XEC_MAC_ADDR_HI(base)			(base + 0x00C)
-#define XEC_MAC_CONFIGURE_0(base)		(base + 0x010)
-#define XEC_MAC_CONFIGURE_1(base)		(base + 0x014)
-#define XEC_MAC_CONFIGURE_2(base)		(base + 0x018)
-#define XEC_MAC_CONFIGURE_3(base)		(base + 0x01C)
-#define XEC_MAC_TX_CONFIGURE_0(base)		(base + 0x020)
-#define XEC_MAC_TX_CONFIGURE_1(base)		(base + 0x024)
-#define XEC_MAC_TX_CONFIGURE_2(base)		(base + 0x028)
-#define XEC_MAC_TX_CONFIGURE_3(base)		(base + 0x02C)
-#define XEC_MAC_RX_CONFIGURE_0(base)		(base + 0x030)
-#define XEC_MAC_RX_CONFIGURE_1(base)		(base + 0x034)
-#define XEC_MAC_RX_CONFIGURE_2(base)		(base + 0x038)
-#define XEC_MAC_RX_CONFIGURE_3(base)		(base + 0x03C)
-#define XEC_MAC_TX_CONTROL_0(base)		(base + 0x040)
-#define XEC_MAC_TX_CONTROL_1(base)		(base + 0x044)
-#define XEC_MAC_TX_CONTROL_2(base)		(base + 0x048)
-#define XEC_MAC_TX_CONTROL_3(base)		(base + 0x04C)
-#define XEC_MAC_RX_CONTROL_0(base)		(base + 0x050)
-#define XEC_MAC_RX_CONTROL_1(base)		(base + 0x054)
-#define XEC_MAC_RX_CONTROL_2(base)		(base + 0x058)
-#define XEC_MAC_RX_CONTROL_3(base)		(base + 0x05C)
-#define XEC_MAC_MDIO_DATA(base)			(base + 0x060)
-#define XEC_MAC_MDIO_CONTROL_STATUS(base)	(base + 0x064)
-#define XEC_MAC_TX_INTERRUPT_CTRL(base)		(base + 0x068)
-#define XEC_MAC_RX_INTERRUPT_CTRL(base)		(base + 0x06C)
-#define XEC_MAC_TX_INTERRUPT(base)		(base + 0x070)
-#define XEC_MAC_RX_INTERRUPT(base)		(base + 0x074)
-#define XEC_MAC_TX_STATUS_0(base)		(base + 0x090)
-#define XEC_MAC_TX_STATUS_1(base)		(base + 0x094)
-#define XEC_MAC_TX_STATUS_2(base)		(base + 0x098)
-#define XEC_MAC_TX_STATUS_3(base)		(base + 0x09C)
-#define XEC_MAC_RX_STATUS_0(base)		(base + 0x0A0)
-#define XEC_MAC_RX_STATUS_1(base)		(base + 0x0A4)
-#define XEC_MAC_RX_STATUS_2(base)		(base + 0x0A8)
-#define XEC_MAC_RX_STATUS_3(base)		(base + 0x0AC)
+/* TX statistics info */
+#define XEC_TX_OK(x)              (x + 0xE0)
+#define XEC_TX_BYTE_CNT(x)        (x + 0xF4)
+#define XEC_TX_MULT_COL(x)        (x + 0x118)
+#define XEC_TX_LATE_COL(x)        (x + 0x11C)
+#define XEC_TX_ABORT_COL(x)       (x + 0x120)
+#define XEC_TX_UNDERRUN(x)        (x + 0x124)
+/* MDIO  */
+#define XEC_MDIO_CTRL1(x)         (x + 0x138)
+#define XEC_MDIO_CTRL2(x)         (x + 0x13C)
+#define XEC_MDIO_STATUS(x)        (x + 0x140)
+/* MISC */
+#define XEC_STATUS(x)             (x + 0x150)
+#define XEC_DELAY_SEL(x)          (x + 0x154)
+#define XEC_SVLAN(x)              (x + 0x158)
+#define XEC_IP_VERSION(x)         (x + 0x174)
 
-/*
- * XEC MMC Register offsets
- */
-#define XEC_MMC_CONTROL(base)			(base + 0x000)
-#define XEC_MMC_TX_INTERRUPT_ENABLE(base)	(base + 0x004)
-#define XEC_MMC_RX_INTERRUPT_ENABLE(base)	(base + 0x008)
-#define XEC_MMC_TX_INTERRUPT(base)		(base + 0x00C)
-#define XEC_MMC_RX_INTERRUPT(base)		(base + 0x010)
-#define XEC_MMC_TX_CNT(base, num)		(base + 0x014 + (0x4 * (num)))
-#define XEC_MMC_RX_CNT(base, num)		(base + 0x07C + (0x4 * (num)))
+#define MDIO_RD_WR                (1 << 21)
+#define MDIO_START                (1 << 23)
+#define MDIO_STATUS_BUSY          (1 << 16)
 
-
-/*
- * XEC SWT Register offsets
- */
-#define XEC_SWT_ID(base)			(base + 0x000)
-#define XEC_SWT_VERSION(base)			(base + 0x004)
-#define XEC_SWT_LUT_ADDR(base)			(base + 0x008)
-#define XEC_SWT_LUT_ENTRY_H(base)		(base + 0x00C)
-#define XEC_SWT_LUT_ENTRY_MH(base)		(base + 0x010)
-#define XEC_SWT_LUT_ENTRY_ML(base)		(base + 0x014)
-#define XEC_SWT_LUT_ENTRY_L(base)		(base + 0x018)
-
-
-/*
- * XEC MAC register definitions
- */
-#define MII_PORT_SEL_MASK			(0x3 << 0)
-#define MII_PORT_SEL_MII			(0x0 << 0)
-#define MII_PORT_SEL_RMII			(0x1 << 0)
-#define MII_PORT_SEL_GMII			(0x2 << 0)
-#define MII_PORT_SEL_RGMII			(0x3 << 0)
-
-#define MII_SPEED_SEL_MASK			(0x3 << 2)
-#define MII_SPEED_SEL_10MBPS			(0x0 << 2)
-#define MII_SPEED_SEL_100MBPS			(0x1 << 2)
-#define MII_SPEED_SEL_1000MBPS			(0x2 << 2)
-#define MII_SPEED_SEL_2500MBPS			(0x3 << 2)
-
-#define REF_CLK_SEL_MASK			(0x3 << 4)
-#define REF_CLK_SEL_25MHZ			(0x0 << 4)
-#define REF_CLK_SEL_50MHZ			(0x1 << 4)
-#define REF_CLK_SEL_125MHZ			(0x2 << 4)
-#define REF_CLK_SEL_312P5MHZ			(0x3 << 4)
-
-#define HDX_MODE_MASK				(0x1 << 6)
-#define HDX_MODE_FULL_DUPLEX			(0x0 << 6)
-#define HDX_MODE_HALF_DUPLEX			(0x1 << 6)
-
-#define MDC_EN_MASK					(0x1 << 15)
-#define MDC_EN_ENABLE				(0x1 << 15)
-#define MDC_EN_DISABLE				(0x0 << 15)
-
-#define TX_MTU_PRG_SEL_MASK			(0x3 << 1)
-#define TX_MTU_PRG_SEL_BASIC			(0x0 << 1)
-#define TX_MTU_PRG_SEL_2K			(0x1 << 1)
-#define TX_MTU_PRG_SEL_9K			(0x2 << 1)
-#define TX_MTU_PRG_SEL_16K			(0x3 << 1)
-
-#define TX_MTU_ENF_EN_MASK			(0x1 << 0)
-#define TX_MTU_ENF_EN_ENABLE			(0x1 << 0)
-#define TX_MTU_ENF_EN_DISABLE			(0x0 << 0)
-
-#define RX_MTU_PRG_SEL_MASK			(0x3 << 9)
-#define RX_MTU_PRG_SEL_BASIC			(0x0 << 9)
-#define RX_MTU_PRG_SEL_2K			(0x1 << 9)
-#define RX_MTU_PRG_SEL_9K			(0x2 << 9)
-#define RX_MTU_PRG_SEL_16K			(0x3 << 9)
-
-#define RX_MTU_ENF_EN_MASK			(0x1 << 8)
-#define RX_MTU_ENF_EN_ENABLE			(0x1 << 8)
-#define RX_MTU_ENF_EN_DISABLE			(0x0 << 8)
-
-#define XEC_MDIO_BUSY				(0x1 << 31)
-
-#define XEC_IOC_CH_INT_RX_PKT_INTR_EN	(0x1 << 16)
-#define XEC_IOC_CH_INT_TX_PKT_INTR_EN	(0x1 << 0)
-#define XEC_IOC_CH_INT_RX_PKT_INTR		(0x1 << 16)
-#define XEC_IOC_CH_INT_TX_PKT_INTR		(0x1 << 0)
-
-#define XEC_IOC_CH_INT_EN_MASK			(XEC_IOC_CH_INT_RX_PKT_INTR_EN|XEC_IOC_CH_INT_TX_PKT_INTR_EN)
-#define XEC_IOC_CH_INT_EN   			(XEC_IOC_CH_INT_RX_PKT_INTR|XEC_IOC_CH_INT_TX_PKT_INTR)
-
-#define XEC_SWT_LUT_MAXNUM				(0x3)
-
-#define XEC_SWT_LUT_BUSY				(0x1 << 31)
-#define XEC_SWT_LUT_ISSUE				(0x1 << 31)
-#define XEC_SWT_LUT_OP_WRITE			(0x1 << 30)
-#define XEC_SWT_LUT_ACT					(0x7 << 1)
-#define XEC_SWT_LUT_CE_ENABLE			(0x1 << 0)
-#define XEC_SWT_LUT_CE_DISABLE			(0x0 << 0)
-
-#define XEC_SWT_LUT_OP_READ				(0x0 << 30)
-#define XEC_SWT_LUT_ADDR_MASK			(0x3FFFFFFF)
-
-#define XEC_TX_PKTOP_MASK				(0x14)  // CRC insert, PAD_EN
-#define XEC_TX_SUMM_MASK				(0xD)   // Buffer0 Valid, First, Last Descriptor
-#define XEC_RX_SUMM_MASK				(0x1)   // Buffer0 Valid
-
-#define XEC_DESC_DINFO_NONE				(0x0)	// No HW, NXTD, INTR
-#define XEC_DESC_DINFO_TX_MASK			(0x1)	// HW set
-/// TODO TX maybe no need to cause interrupt
-// #define XEC_DESC_DINFO_TX_MASK			(0x5)	// HW set, Interrupt enable
-#define XEC_DESC_DINFO_RX_MASK			(0x5)	// HW set, Interrupt enable
-
-#define XEC_DESC_DINFO_HWSET			(0x1)	// HW set
-
-
-/* Transmit Status information  */
-#define TXSTATUS_PKT_COMPLETE		(0x1 << 2)
-#define TXSTATUS_DESC_FETCH_ERROR	(0x1 << 0)
-#define TXSTATUS_DATA_FETCH_ERROR	(0x1 << 1)
-#define TXSTATUS_ERROR				(TXSTATUS_DESC_FETCH_ERROR | TXSTATUS_DATA_FETCH_ERROR)
-
-/* TX/RX status xmit or receive status */
-#define MAC_TX_STATUS_0_TX_XMIT_ON	(0x1 << 0)
-#define MAC_RX_STATUS_0_RX_RCV_ON	(0x1 << 0)
-
-static phy_interface_t xec_phy_interface_mode(struct device *dev)
-{
-	phy_interface_t interface = PHY_INTERFACE_MODE_MII;
-	if (dev && dev->of_node) {
-		of_get_phy_mode(dev->of_node, &interface);
-	}
-	return interface;
-}
-
-/*
- * Structure of XEC Descriptors
- */
-
-typedef struct xec_desc_t {
-	u32 dtype_spec_0;
-	u32 dtype_spec_1;
-	u32 dtype_spec_2;
-	u32 dtype_spec_3;
-} xec_desc_t;
-
-typedef struct xec_generic_desc_t {
-	u32 dtype_spec_0;
-	u32 dtype_spec_1;
-	u32 dtype_spec_2;
-	u32 dtype_spec_3 : 24;
-	u32 dinfo : 4;
-	u32 dtype : 4;
-} xec_generic_desc_t;
-
-typedef struct xec_txbuff_64_desc_t {
-	u64 baddr0;
-	u16 bsize0;
-	u16 bsize1;
-	u32 pktop : 10;
-	u32 pktid : 10;
-	u32 summ  : 4;
-	u32 dinfo : 4;
-	u32 dtype : 4;
-} xec_txbuff_64_desc_t;
-
-struct xec_txbuff_32_desc_t {
-	u32 baddr0;
-	u32 baddr1;
-	u16 bsize0;
-	u16 bsize1;
-	u32 pktop : 10;
-	u32 pktid : 10;
-	u32 summ  : 4;
-	u32 dinfo : 4;
-	u32 dtype : 4;
-};
-typedef struct xec_txsts0_desc_t {
-	u32 txsts : 12;
-	u32 rsvd0 : 20;
-	u32 rsvd1 : 32;
-	u32 rsvd2 : 32;
-	u32 rsvd3 : 12;
-	u32 summ : 12;
-	u32 dinfo : 4;
-	u32 dtype : 4;
-} xec_txsts0_desc_t;
-
-struct xec_rxbuff_64_desc_t {
-	u64 baddr0;
-	u64 baddr1 : 52;
-	u64 summ : 4;
-	u64 dinfo : 4;
-	u64 dtype : 4;
-};
-
-typedef struct xec_rxbuff_32_desc_t {
-	u32 baddr0;
-	u32 rsvd0;
-	u32 baddr1;
-	u32 rsvd1 : 20;
-	u32 summ : 4;
-	u32 dinfo : 4;
-	u32 dtype : 4;
-} xec_rxbuff_32_desc_t;
-
-typedef union {
-	u32 value;
+union xec_ctrl_reg_t {
+	u32 val;
 	struct {
-		u32 flenv : 1;
-		u32 ferr : 1;
-		u32 rut_vld : 1;
-		u32 lut_rut : 3;
-		u32 lut_idx : 5;
-		u32 frame_error : 4;
-		u32 tsv : 1;
-		u32 csv : 1;
-		u32 databus_err : 1;
-		u32 rsvd0 : 14;
+		u32 txen :1;
+		u32 rxen :1;
+		u32 txfc :1;
+		u32 rxfc :1;
+		u32 loopback :1;
+		u32 fullduplex :1;
+		u32 crce :1;
+		u32 flchk :1;
+		u32 prlen :4;
+		u32 reserved :1;
+		u32 vlan_strip :1;
+		u32 prom_mode :1;
+		u32 tx_ip_sum_en :1;
+		u32 tx_icmp_sum_en :1;
+		u32 tx_udp_sum_en :1;
+		u32 speed :2;
+		u32 mii_mode :2;
+		u32 tx_parser_en :1;
+		u32 rx_chksum_en :1;
+		u32 multi_all :1;
+		u32 rx_hash_en :1;
+		u32 broad_en :1;
+		u32 debug_mode :1;
+		u32 sys_clk_125 :1;
+		u32 sys_clk_25 :1;
+		u32 rmii_mode :1;
+		u32 magic_frame_en :1;
 	} bits;
-} xec_rxsts_t;
+};
 
-typedef struct xec_rxsts0_desc_t {
-	u16 bsize0;
-	u16 flen;
-	xec_rxsts_t rxsts;
-	u32 rsvd0;
-	u32 pktid : 10;
-	u32 rsvd1 : 2;
-	u32 summ : 12;
-	u32 dinfo : 4;
-	u32 dtype : 4;
-} xec_rxsts0_desc_t;
+union xec_int_reg_t {
+	u32 val;
+	struct {
+		u32 rxfifo_of_int :1;
+		u32 rfd_ur_int :1;
+		u32 txf_ur_int :1;
+		u32 dmar_to_int :1;
+		u32 dmaw_to_int :1;
+		u32 tx_pkt_int :1;
+		u32 rx_pkt_int :1;
+		u32 dmaw_bus_err_int :1;
+		u32 dmar_bus_err_int :1;
+		u32 cmb_int :1;
+		u32 magic_frame_int :1;
+		u32 rx_ptp_event_int :1;
+		u32 tx_ptp_event_int :1;
+		u32 reserved :18;
+		u32 dis_int :1;
+	} bits;
+};
+
+/* Transmit Package Desc , 16byte aligned*/
+struct tp_desc_t {
+	u32 cfg0;
+	u32 cfg1;
+	u32 buf_addr_lo;
+	u32 buf_addr_hi;
+};
+
+/* Receive Free Desc, 8byte aligned */
+struct rf_desc_t {
+	u32 buf_addr_lo;
+	u32 buf_addr_hi;
+};
+
+/* Receive Return Desc, 8byte aligned.
+ * received packet summary information
+ */
+struct rr_desc_t {
+	u32 status0;
+	u32 status1;
+};
 
 /*
  * Device driver data structure
@@ -334,376 +171,107 @@ struct netdata_local {
 	struct platform_device	*pdev;
 	struct net_device	*ndev;
 	struct device_node	*phy_node;
-	spinlock_t		lock;
+	spinlock_t			lock;
 	void __iomem		*net_base;
-	void __iomem		*net_mac_base;
-	void __iomem		*net_ioc_base;
-	void __iomem		*net_ioc_ch_base;
-	void __iomem		*net_mmc_base;
-	void __iomem		*net_swt_base;
-	u32			msg_enable;
-	unsigned int		txdesc_sz;
-	unsigned int		rxdesc_sz;
-	unsigned int		*skblen;
+	u32					msg_enable;
 	unsigned int		last_tx_idx;
 	unsigned int		num_used_tx_buffs;
 	struct mii_bus		*mii_bus;
-	struct clk		*clk;
-	dma_addr_t		dma_buff_base_p;
-	void			*dma_buff_base_v;
-	size_t			dma_buff_size;
-	struct xec_generic_desc_t	*tx_desc_v;
-	void			*tx_buff_v;
-	struct xec_generic_desc_t	*rx_desc_v;
-	void			*rx_buff_v;
-	int			link;
-	int			speed;
-	int			duplex;
-	int			phymode;
+	struct clk			*clk;
+	u32					desc_memtype;
+	dma_addr_t			dma_buff_base_p;
+	void				*dma_buff_base_v;
+	size_t				dma_buff_size;
+	struct tp_desc_t	*tp_desc_v;
+	/* record tx sk buffer address */
+	struct sk_buff		*tp_buff_v[ENET_TX_DESC];
+	struct rf_desc_t	*rf_desc_v;
+	/* record rx sk buffer address */
+	struct sk_buff		*rf_buff_v[ENET_RX_DESC];
+	struct rr_desc_t	*rr_desc_v;
+	/* recv data index */
+	int					rx_idx;
+	int					link;
+	int					speed;
+	int					duplex;
 	struct napi_struct	napi;
 };
 
-static u8 all_ffs[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-static u8 all_zeros[] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
-static u8 all_bc_mac[] = {0x01, 0x80, 0xC0, 0x00, 0x00, 0x00};
-static u8 all_bc_mask[] = {0x0, 0x0, 0x0, 0xFF, 0xFF, 0xFF};
-
-static bool get_sram_for_net(struct netdata_local *pldat)
+static phy_interface_t xec_phy_interface_mode(struct device *dev)
 {
-	u64 sram_addr, sram_sz;
-	struct device *dev = &pldat->pdev->dev;
 	if (dev && dev->of_node) {
-		if (of_property_read_u64_index(dev->of_node, "sram", 0, &sram_addr) != 0) {
-			return false;
-		}
-		if (of_property_read_u64_index(dev->of_node, "sram", 1, &sram_sz) != 0) {
-			return false;
-		}
-		pldat->dma_buff_base_p = sram_addr;
-		pldat->dma_buff_size = sram_sz;
-		pldat->dma_buff_base_v = ioremap(sram_addr, sram_sz);
-		return true;
+		const char *mode = of_get_property(dev->of_node,
+							"phy-mode", NULL);
+		if (mode && !strcmp(mode, "gmii"))
+			return PHY_INTERFACE_MODE_GMII;
+		else if (mode && !strcmp(mode, "rgmii"))
+			return PHY_INTERFACE_MODE_RGMII;
+		else if (mode && !strcmp(mode, "mii"))
+			return PHY_INTERFACE_MODE_MII;
+		else if (mode && !strcmp(mode, "rmii"))
+			return PHY_INTERFACE_MODE_RMII;
 	}
-	return false;
+	return PHY_INTERFACE_MODE_GMII;
 }
 
 /*
  * MAC support functions
  */
-
-static void __xec_set_phy_interface_mode(struct netdata_local *pldat, phy_interface_t mode)
-{
-	u32 tmp = readl(XEC_MAC_CONFIGURE_0(pldat->net_mac_base));
-	tmp &= ~MII_PORT_SEL_MASK;
-	if (mode == PHY_INTERFACE_MODE_MII)
-		tmp |= MII_PORT_SEL_MII;
-	else if (mode == PHY_INTERFACE_MODE_RMII)
-		tmp |= MII_PORT_SEL_RMII;
-	else if (mode == PHY_INTERFACE_MODE_GMII)
-		tmp |= MII_PORT_SEL_GMII;
-	else if (mode == PHY_INTERFACE_MODE_RGMII)
-		tmp |= MII_PORT_SEL_RGMII;
-	else
-		tmp |= MII_PORT_SEL_MII;
-
-	writel(tmp, XEC_MAC_CONFIGURE_0(pldat->net_mac_base));
-}
-
-static void __xec_set_swt_lut(struct netdata_local *pldat, u32 lutaddr, u8 *mac, u8 *mask, u32 ce)
-{
-	u32 tmp;
-
-	if (mac) {
-		dev_dbg(&pldat->pdev->dev, "__xec_set_swt_lut: mac %x:%x:%x:%x:%x:%x\n", \
-			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-	}
-	if (mask) {
-		dev_dbg(&pldat->pdev->dev, "__xec_set_swt_lut: mask %x:%x:%x:%x:%x:%x\n", \
-			mask[0], mask[1], mask[2], mask[3], mask[4], mask[5]);
-	}
-
-	dev_dbg(&pldat->pdev->dev, "__xec_set_swt_lut: lutaddr %d, ce %d", \
-			lutaddr, ce, mac);
-
-	/* Wait for busy bit is reset */
-	do {
-		tmp = readl(XEC_SWT_LUT_ADDR(pldat->net_swt_base));
-	} while(tmp & XEC_SWT_LUT_BUSY);
-
-	/* set ENTRY_L */
-	if (mac != NULL) {
-		tmp = mac[5] | ((u32)mac[4] << 8) | ((u32)mac[3] << 16) | ((u32)mac[2] << 24);
-	} else {
-		tmp = 0;
-	}
-	writel(tmp, XEC_SWT_LUT_ENTRY_L(pldat->net_swt_base));
-	/* set MASK_L and ENTRY_H */
-	tmp = 0;
-	if (mac != NULL) {
-		tmp = (tmp & 0xFFFF0000) | (mac[1] | ((u32)mac[0] << 8));
-	}
-	if (mask != NULL) {
-		tmp = (tmp & 0xFFFF) | ((u32)mask[5] << 16) | ((u32)mask[4] << 24);
-	}
-	writel(tmp, XEC_SWT_LUT_ENTRY_ML(pldat->net_swt_base));
-	/* set MASK_H */
-	if (mask != NULL) {
-		tmp = mask[3] | ((u32)mask[2] << 8) | ((u32)mask[1] << 16) | ((u32)mask[0] << 24);
-	} else {
-		tmp = 0;
-	}
-	writel(tmp, XEC_SWT_LUT_ENTRY_MH(pldat->net_swt_base));
-
-	/* Set CE to ce */
-	writel(ce | XEC_SWT_LUT_ACT, XEC_SWT_LUT_ENTRY_H(pldat->net_swt_base));
-
-	tmp = XEC_SWT_LUT_ISSUE | XEC_SWT_LUT_OP_WRITE | (lutaddr & XEC_SWT_LUT_ADDR_MASK);
-	writel(tmp, XEC_SWT_LUT_ADDR(pldat->net_swt_base));
-
-	/* Wait for busy bit is reset */
-	do {
-		tmp = readl(XEC_SWT_LUT_ADDR(pldat->net_swt_base));
-	} while(tmp & XEC_SWT_LUT_BUSY);
-}
-
-static void __xec_set_swt_lut_da_only(struct netdata_local *pldat, u32 lutaddr, u8 *damac, u8 *damask)
-{
-	if (lutaddr >= XEC_SWT_LUT_MAXNUM) {
-		dev_dbg(&pldat->pdev->dev, "__xec_set_swt_lut: can't set lut addr %d, max %d luts", \
-			lutaddr, XEC_SWT_LUT_MAXNUM);
-		return;
-	}
-	__xec_set_swt_lut(pldat, lutaddr, damac, damask, XEC_SWT_LUT_CE_DISABLE);
-}
-
-static void __xec_set_swt_lut_da_sa(struct netdata_local *pldat, u32 lutaddr, u8 *damac, u8 *damask, u8 *samac, u8 *samask)
-{
-	if (lutaddr > (XEC_SWT_LUT_MAXNUM)) { /* Combined mode can use extra 1 entry */
-		dev_dbg(&pldat->pdev->dev, "__xec_set_swt_lut: can't set lut addr %d, max %d luts", \
-			lutaddr, XEC_SWT_LUT_MAXNUM);
-		return;
-	}
-	__xec_set_swt_lut(pldat, lutaddr, damac, damask, XEC_SWT_LUT_CE_ENABLE);
-	__xec_set_swt_lut(pldat, lutaddr + 1, samac, samask, XEC_SWT_LUT_CE_DISABLE);
-}
-
-static void _xec_set_txbuff64_desc(struct xec_generic_desc_t *desc, void *bufaddr, u32 bufsz, u32 pktop, u32 pktid, u32 summ, u32 dinfo)
-{
-	struct xec_txbuff_64_desc_t *xec_txbuff_desc;
-
-	if (desc == NULL)
-		return;
-
-	xec_txbuff_desc = (struct xec_txbuff_64_desc_t *)((void *)desc);
-
-	xec_txbuff_desc->baddr0 = (u64)bufaddr;
-	xec_txbuff_desc->bsize0 = bufsz;
-	xec_txbuff_desc->pktop = pktop;
-	xec_txbuff_desc->pktid = pktid;
-	xec_txbuff_desc->summ = summ;
-	xec_txbuff_desc->dinfo = dinfo;
-	xec_txbuff_desc->dtype = 0x0; // TXBUFF type
-}
-
-static void _xec_dump_desc(struct netdata_local *pldat, void *desc)
-{
-	struct xec_desc_t *desc_t = (struct xec_desc_t *)desc;
-
-	dev_dbg(&pldat->pdev->dev, "xec descriptor: 0x%x 0x%x 0x%x 0x%x\n", \
-			desc_t->dtype_spec_0, desc_t->dtype_spec_1, desc_t->dtype_spec_2, desc_t->dtype_spec_3);
-}
-
-static void _xec_txbuff64_desc_init(struct xec_generic_desc_t *desc, void *bufaddr, u32 bufsz, u32 pktop, u32 pktid, u32 summ)
-{
-	_xec_set_txbuff64_desc(desc, bufaddr, bufsz, pktop, pktid, summ, XEC_DESC_DINFO_NONE);
-}
-
-static void _xec_set_rxbuff64_desc(struct xec_generic_desc_t *desc, void *bufaddr0, void *bufaddr1, u32 summ, u32 dinfo)
-{
-	struct xec_rxbuff_64_desc_t *xec_rxbuff_desc;
-
-	if (desc == NULL)
-		return;
-
-	xec_rxbuff_desc = (struct xec_rxbuff_64_desc_t *)((void *)desc);
-
-	xec_rxbuff_desc->baddr0 = (u64)bufaddr0;
-	xec_rxbuff_desc->baddr1 = (u64)bufaddr1;
-
-	xec_rxbuff_desc->summ = summ;
-	xec_rxbuff_desc->dinfo = dinfo;
-	xec_rxbuff_desc->dtype = 0x0; // RXBUFF type
-}
-
-static void _xec_rxbuff64_desc_init(struct xec_generic_desc_t *desc, void *bufaddr0, void *bufaddr1, u32 summ)
-{
-	_xec_set_rxbuff64_desc(desc, bufaddr0, bufaddr1, summ, XEC_DESC_DINFO_NONE);
-}
-
-static void _xec_desc_handover(struct xec_generic_desc_t *desc, u32 dinfo)
-{
-	if (desc == NULL)
-		return;
-	desc->dinfo = dinfo;
-}
-
-static void __xec_set_mac(struct netdata_local *pldat, u8 *mac)
+static void __xec_set_mac(struct netdata_local *pldat, const u8 *mac)
 {
 	u32 tmp;
 
 	/* Set station address */
-	tmp = mac[0] | ((u32)mac[1] << 8) | ((u32)mac[2] << 16) | ((u32)mac[3] << 24);
-	writel(tmp, XEC_MAC_ADDR_LO(pldat->net_mac_base));
-	tmp = mac[4] | ((u32)mac[5] << 8);
-	writel(tmp, XEC_MAC_ADDR_HI(pldat->net_mac_base));
+	tmp = mac[5] | ((u32)mac[4] << 8) |
+		((u32)mac[3] << 16) | ((u32)mac[2] << 24);
+	writel(tmp, XEC_STAD_LO(pldat->net_base));
+	tmp = ((u32)mac[0] << 8) | mac[1];
+	writel(tmp, XEC_STAD_HI(pldat->net_base));
 
 	netdev_dbg(pldat->ndev, "Ethernet MAC address %pM\n", mac);
 }
 
 static void __xec_get_mac(struct netdata_local *pldat, u8 *mac)
 {
-	u32 tmp;
-
-	/* Get station address */
-	tmp = readl(XEC_MAC_ADDR_LO(pldat->net_mac_base));
-	mac[0] = tmp & 0xFF;
-	mac[1] = (tmp >> 8) & 0xFF;
-	mac[2] = (tmp >> 16) & 0xFF;
-	mac[3] = (tmp >> 24) & 0xFF;
-	tmp = readl(XEC_MAC_ADDR_HI(pldat->net_mac_base));
-	mac[4] = tmp & 0xFF;
-	mac[5] = (tmp >> 8) & 0xFF;
-}
-
-static void __nuclei_xec_txrx_control(struct netdata_local *pldat, bool tx_enable, bool rx_enable)
-{
-	if (tx_enable) {
-		/* Enable TX  */
-		writel(0x1, XEC_IOC_CH_TX_CTRL(pldat->net_ioc_ch_base));
-		// TX_CLK_EN enable, TX_XMIT_EN enable
-		writel(0x5, XEC_MAC_TX_CONTROL_0(pldat->net_mac_base));
-	} else {
-		// TX_CLK_EN disable, TX_XMIT_EN disable
-		writel(0x0, XEC_MAC_TX_CONTROL_0(pldat->net_mac_base));
-		/* Disable TX  */
-		writel(0x0, XEC_IOC_CH_TX_CTRL(pldat->net_ioc_ch_base));
-	}
-	if (rx_enable) {
-		/* Enable RX  */
-		writel(0x1, XEC_IOC_CH_RX_CTRL(pldat->net_ioc_ch_base));
-		// RX_CLK_EN enable, RX_RCV_EN enable
-		writel(0x3, XEC_MAC_RX_CONTROL_0(pldat->net_mac_base));
-	} else {
-		// RX_CLK_EN disable, RX_RCV_EN disable
-		writel(0x0, XEC_MAC_RX_CONTROL_0(pldat->net_mac_base));
-		/* Disable TX  */
-		writel(0x0, XEC_IOC_CH_RX_CTRL(pldat->net_ioc_ch_base));
-	}
-}
-
-static void _nuclei_xec_phy_dumpregs(struct netdata_local *pldat)
-{
-	struct phy_device *phydev = pldat->ndev->phydev;
-
-	dev_dbg(&pldat->pdev->dev, "phy regs: 0x0: 0x%x, 0x1: 0x%x, 0x11: 0x%x, 0x18: 0x%x, 0x19: 0x%x, 0x1A: 0x%x", \
-		phy_read(phydev, 0x0), phy_read(phydev, 0x1), phy_read(phydev, 0x11), phy_read(phydev, 0x18), \
-		phy_read(phydev, 0x19), phy_read(phydev, 0x1A));
-}
-
-static void _nuclei_xec_phy_reset(struct netdata_local *pldat)
-{
-	struct phy_device *phydev = pldat->ndev->phydev;
-	int regval;
-
-	// Reset Phy, force to MDI mode
-	regval = phy_read(phydev, 0x18);
-	regval = regval | ((0x3<<8));
-	phy_write(phydev, 0x18, regval);
-	phy_write(phydev, 0x0, 0x1<<15);
-	do {
-		regval = phy_read(phydev, 0x0);
-	} while(regval & (0x1<<15));
-	// Wait until link ready
-	do {
-		regval = phy_read(phydev, 0x1A);
-	} while(regval & (0x1<<2));
-	_nuclei_xec_phy_dumpregs(pldat);
+	/* reserve for generate mac */
+#ifdef XEC_USE_TEST_MAC
+	/*fix mac addr for debug*/
+	mac[0] = 0x00;
+	mac[1] = 0x2b;
+	mac[2] = 0x20;
+	mac[3] = 0x21;
+	mac[4] = 0x03;
+	mac[5] = 0x23;
+#endif
 }
 
 static void __xec_params_setup(struct netdata_local *pldat)
 {
-	u32 tmp;
+	union xec_ctrl_reg_t reg;
 
-	/* Set duplex, phy-mode, speed-mode */
-	tmp = readl(XEC_MAC_CONFIGURE_0(pldat->net_mac_base));
-	/* set duplex mode */
-	tmp &= ~HDX_MODE_MASK;
+	reg.val = readl(XEC_CTRL(pldat->net_base));
 	if (pldat->duplex == DUPLEX_FULL) {
-		tmp |= HDX_MODE_FULL_DUPLEX;
-	} else if (pldat->duplex == DUPLEX_HALF) {
-		tmp |= HDX_MODE_HALF_DUPLEX;
+		reg.bits.fullduplex = 1;
 	} else {
-		tmp |= HDX_MODE_FULL_DUPLEX;
+		reg.bits.fullduplex = 0;
 	}
-	/* set phy-mode */
-	tmp &= ~MII_PORT_SEL_MASK;
-	if (pldat->phymode == PHY_INTERFACE_MODE_MII)
-		tmp |= MII_PORT_SEL_MII;
-	else if (pldat->phymode == PHY_INTERFACE_MODE_RMII)
-		tmp |= MII_PORT_SEL_RMII;
-	else if (pldat->phymode == PHY_INTERFACE_MODE_GMII)
-		tmp |= MII_PORT_SEL_GMII;
-	else if (pldat->phymode == PHY_INTERFACE_MODE_RGMII)
-		tmp |= MII_PORT_SEL_RGMII;
+
+	if (pldat->speed == SPEED_1000)
+		reg.bits.speed = 2;
+	else if (pldat->speed == SPEED_100)
+		reg.bits.speed = 1;
 	else
-		tmp |= MII_PORT_SEL_MII;
-	/* set speed mode */
-	tmp &= ~MII_SPEED_SEL_MASK;
-	tmp &= ~REF_CLK_SEL_MASK;
-	if (pldat->speed == SPEED_100) {
-		tmp |= MII_SPEED_SEL_100MBPS;
-		if (pldat->phymode == PHY_INTERFACE_MODE_MII) {
-			tmp |= REF_CLK_SEL_25MHZ;
-		} else if (pldat->phymode == PHY_INTERFACE_MODE_RMII) {
-			tmp |= REF_CLK_SEL_50MHZ;
-		} else {
-			tmp |= REF_CLK_SEL_25MHZ;
-		}
-	} else if (pldat->speed == SPEED_1000) {
-		tmp |= MII_SPEED_SEL_1000MBPS;
-		tmp |= REF_CLK_SEL_125MHZ;
-	} else if (pldat->speed == SPEED_2500) {
-		tmp |= MII_SPEED_SEL_2500MBPS;
-		tmp |= REF_CLK_SEL_312P5MHZ;
-	} else {
-		tmp |= MII_SPEED_SEL_10MBPS;
-		tmp |= REF_CLK_SEL_25MHZ;
-	}
-	dev_dbg(&pldat->pdev->dev, "__xec_params_setup duplex %d, phymode %d, speed %d, conf-val 0x%x\n", \
-		pldat->duplex, pldat->phymode, pldat->speed, tmp);
-	writel(tmp, XEC_MAC_CONFIGURE_0(pldat->net_mac_base));
-	if (pldat->speed != 0) {
-		/* Enable RX transfer */
-		writel(0x1, XEC_IOC_CH_RX_CTRL(pldat->net_ioc_ch_base));
-		writel(0x3, XEC_MAC_RX_CONTROL_0(pldat->net_mac_base));
-		/* Enable TX/RX Interrupt */
-		writel(XEC_IOC_CH_INT_EN_MASK, XEC_IOC_CH_INTERRUPT_ENABLE(pldat->net_ioc_ch_base));
-	} else {
-		/* Disable TX/RX Interrupt to stop transfer, don't disable tx/rx here, it might cause xec enter uncontrolled state */
-		writel(0, XEC_IOC_CH_INTERRUPT_ENABLE(pldat->net_ioc_ch_base));
-	}
+		reg.bits.speed = 0;
+
+	writel(reg.val, XEC_CTRL(pldat->net_base));
 }
 
-static void __nuclei_xec_reset(struct netdata_local *pldat)
+static void __xec_eth_reset(struct netdata_local *pldat)
 {
-	/* For XEC, don't reset any mac control register if still in transfer state */
-}
+	/* Reset all MAC logic */
 
-static int __xec_mii_mngt_reset(struct netdata_local *pldat)
-{
-	/* Reset MII management hardware */
-
-	return 0;
+	pldat->duplex = DUPLEX_FULL;
+	pldat->speed = SPEED_100;
 }
 
 static inline phys_addr_t __va_to_pa(void *addr, struct netdata_local *pldat)
@@ -716,195 +284,220 @@ static inline phys_addr_t __va_to_pa(void *addr, struct netdata_local *pldat)
 	return phaddr;
 }
 
-static inline phys_addr_t __get_tx_buff_p(struct netdata_local *pldat, u32 idx)
+static void xec_eth_enable_int(void __iomem *regbase)
 {
-	void *va = pldat->tx_buff_v + idx * ENET_MAXF_SIZE;
-	return __va_to_pa(va, pldat);
+	union xec_int_reg_t reg;
+
+	reg.val = 0x80001FFF;
+	reg.bits.tx_pkt_int = 0;
+	reg.bits.rx_pkt_int = 0;
+	reg.bits.dis_int = 0;
+	writel(reg.val, XEC_INT_MASK(regbase));
 }
 
-static inline phys_addr_t __get_rx_buff_p(struct netdata_local *pldat, u32 idx)
+static void xec_eth_disable_int(void __iomem *regbase)
 {
-	void *va = pldat->rx_buff_v + idx * ENET_MAXF_SIZE;
-	return __va_to_pa(va, pldat);
+	union xec_int_reg_t reg;
+
+	reg.val = readl(XEC_INT_MASK(regbase));
+	reg.bits.dis_int = 1;
+	writel(reg.val, XEC_INT_MASK(regbase));
 }
 
-static void nuclei_xec_enable_int(struct netdata_local *pldat, u32 mask)
+static void __xec_free_rx_skb(struct netdata_local *pldat)
 {
-	u32 tmp;
-	tmp = readl(XEC_IOC_CH_INTERRUPT_ENABLE(pldat->net_ioc_ch_base));
-	tmp = tmp | (mask);
-	writel(tmp, XEC_IOC_CH_INTERRUPT_ENABLE(pldat->net_ioc_ch_base));
-}
+	int i;
 
-static void nuclei_xec_disable_int(struct netdata_local *pldat, u32 mask)
-{
-	u32 tmp;
-	tmp = readl(XEC_IOC_CH_INTERRUPT_ENABLE(pldat->net_ioc_ch_base));
-	tmp = tmp & (~mask);
-	writel(tmp, XEC_IOC_CH_INTERRUPT_ENABLE(pldat->net_ioc_ch_base));
-}
-
-static int nuclei_xec_safely_disable_txrx(struct netdata_local *pldat)
-{
-	unsigned long timeout = jiffies + msecs_to_jiffies(1000);
-
-	while (readl(XEC_MAC_TX_STATUS_0(pldat->net_ioc_ch_base)) & MAC_TX_STATUS_0_TX_XMIT_ON) {
-		cpu_relax();
-		if (time_after(jiffies, timeout))
-			return -1;		
+	for (i = 0; i < ENET_RX_DESC; i++) {
+		if (pldat->rf_buff_v[i]) {
+			dev_kfree_skb(pldat->rf_buff_v[i]);
+			pldat->rf_buff_v[i] = NULL;
+		}
 	}
-	writel(0x0, XEC_IOC_CH_TX_CTRL(pldat->net_ioc_ch_base));
-	while (readl(XEC_MAC_RX_STATUS_0(pldat->net_ioc_ch_base)) & MAC_RX_STATUS_0_RX_RCV_ON) {
-		cpu_relax();
-		if (time_after(jiffies, timeout))
-			return -1;		
-	}
-	writel(0x0, XEC_IOC_CH_RX_CTRL(pldat->net_ioc_ch_base));
-	return 0;
 }
 
+static void __xec_free_tx_skb(struct netdata_local *pldat)
+{
+	int i;
+
+	for (i = 0; i < ENET_TX_DESC; i++) {
+		if (pldat->tp_buff_v[i]) {
+			dev_kfree_skb(pldat->tp_buff_v[i]);
+			pldat->tp_buff_v[i] = NULL;
+		}
+	}
+}
 
 /* Setup TX/RX descriptors */
-static void __xec_txrx_desc_setup(struct netdata_local *pldat)
+static int __xec_txrx_desc_setup(struct netdata_local *pldat)
 {
-	void *desc_buff_v;
+	u32 val;
+	void *tbuff;
 	int i;
-	struct xec_generic_desc_t *tx_desc_t, *rx_desc_t;
-	struct xec_txbuff_64_desc_t *xec_txbuff_desc;
-	struct xec_rxbuff_64_desc_t *xec_rxbuff_desc;
-	phys_addr_t phaddr;
-	unsigned int value;
+	struct tp_desc_t *ptpdesc;
+	struct rf_desc_t *prfdesc;
+	struct sk_buff *skb;
+	int rc;
+	dma_addr_t dma_addr;
 
-	desc_buff_v = PTR_ALIGN(pldat->dma_buff_base_v, 16);
+	tbuff = PTR_ALIGN(pldat->dma_buff_base_v, 16);
 
-	/* Setup TX/RX descriptor pointor */
-	pldat->tx_desc_v = desc_buff_v;
-	desc_buff_v += sizeof(struct xec_generic_desc_t) * pldat->txdesc_sz;
+	/* Setup TX descriptors, status, and buffers */
+	pldat->tp_desc_v = tbuff;
+	tbuff += sizeof(struct tp_desc_t) * ENET_TX_DESC;
 
-	pldat->rx_desc_v = desc_buff_v;
-	desc_buff_v += sizeof(struct xec_generic_desc_t) * pldat->rxdesc_sz;
+	/* Setup RX descriptors, status, and buffers */
+	tbuff = PTR_ALIGN(tbuff, 16);
+	pldat->rf_desc_v = tbuff;
+	tbuff += sizeof(struct rf_desc_t) * ENET_RX_DESC;
 
-	pldat->tx_buff_v = desc_buff_v;
-	pldat->rx_buff_v = desc_buff_v + ENET_MAXF_SIZE * pldat->txdesc_sz;
+	tbuff = PTR_ALIGN(tbuff, 16);
+	pldat->rr_desc_v = tbuff;
+	tbuff += sizeof(struct rr_desc_t) * ENET_RX_DESC;
 
-	dev_dbg(&pldat->pdev->dev, "__xec_txrx_desc_setup tx_desc virtual addr 0x%x, tx_buff 0x%x\n", pldat->tx_desc_v, pldat->tx_buff_v);
-	dev_dbg(&pldat->pdev->dev, "__xec_txrx_desc_setup rx_desc virtual addr 0x%x, rx_buff 0x%x\n", pldat->rx_desc_v, pldat->rx_buff_v);
-	dev_dbg(&pldat->pdev->dev, "__xec_txrx_desc_setup tx_desc phys addr 0x%x, tx_buff 0x%x\n", \
-		__va_to_pa(pldat->tx_desc_v, pldat), __va_to_pa(pldat->tx_buff_v, pldat));
-	dev_dbg(&pldat->pdev->dev, "__xec_txrx_desc_setup rx_desc phys addr 0x%x, rx_buff 0x%x\n", \
-		__va_to_pa(pldat->rx_desc_v, pldat), __va_to_pa(pldat->rx_buff_v, pldat));
-	/* Setup TX descriptors */
-	for (i = 0; i < pldat->txdesc_sz; i ++) {
-		tx_desc_t = &(pldat->tx_desc_v[i]);
-		// Buffer0 valid, FD and LD set, HW NXTD INTR disabled
-		_xec_set_txbuff64_desc(tx_desc_t, (void *)__get_tx_buff_p(pldat, i), 0, 0, i, XEC_TX_SUMM_MASK, XEC_DESC_DINFO_NONE);
+	/* Map the TX descriptors to the TX buffers in hardware */
+	for (i = 0; i < ENET_TX_DESC; i++) {
+		ptpdesc = &pldat->tp_desc_v[i];
+		ptpdesc->buf_addr_lo = 0;
+		ptpdesc->buf_addr_hi = 0;
+		ptpdesc->cfg0 = 0;
+		ptpdesc->cfg1 = 0;
 	}
 
-	/* Setup RX descriptors */
-	for (i = 0; i < pldat->rxdesc_sz; i ++) {
-		rx_desc_t = &(pldat->rx_desc_v[i]);
+	/* Map the RX descriptors to the RX buffers in hardware */
+	for (i = 0; i < ENET_RX_DESC; i++) {
+		skb = netdev_alloc_skb(pldat->ndev, ENET_MAXF_SIZE);
+		if (!skb) {
+			rc = -ENOMEM;
+			goto err_exit;
+		}
+		pldat->rf_buff_v[i] = skb;
 
-		// Buffer0 valid, HW NXTD INTR Enabled
-		_xec_set_rxbuff64_desc(rx_desc_t, (void *)__get_rx_buff_p(pldat, i), NULL, XEC_RX_SUMM_MASK, XEC_DESC_DINFO_RX_MASK);
+		prfdesc = &pldat->rf_desc_v[i];
+		dma_addr = dma_map_single(pldat->ndev->dev.parent,
+				skb->data, ENET_MAXF_SIZE, DMA_BIDIRECTIONAL);
+		prfdesc->buf_addr_lo = lower32(dma_addr);
+		prfdesc->buf_addr_hi = upper32(dma_addr);
+
+		/* clear rr desc */
+		memset(&pldat->rr_desc_v[i], 0, sizeof(struct rr_desc_t));
 	}
 
 	/* Setup base addresses in hardware to point to buffers and
 	 * descriptors
 	 */
-	xec_txbuff_desc = (struct xec_txbuff_64_desc_t *)((void *)&(pldat->tx_desc_v[0]));
-	phaddr = __va_to_pa(pldat->tx_desc_v, pldat);
-	writel((u32)phaddr, XEC_IOC_CH_TX_LIST_LADDR(pldat->net_ioc_ch_base));
-	writel((u32)(phaddr >> 32), XEC_IOC_CH_TX_LIST_HADDR(pldat->net_ioc_ch_base));
-	xec_rxbuff_desc = (struct xec_rxbuff_64_desc_t *)((void *)&(pldat->rx_desc_v[0]));
-	phaddr = __va_to_pa(pldat->rx_desc_v, pldat);
-	writel((u32)(phaddr), XEC_IOC_CH_RX_LIST_LADDR(pldat->net_ioc_ch_base));
-	writel((u32)(phaddr >> 32), XEC_IOC_CH_RX_LIST_HADDR(pldat->net_ioc_ch_base));
+	writel(lower32(__va_to_pa(pldat->tp_desc_v, pldat)),
+		XEC_DESC_CTRL7(pldat->net_base));
+	writel(upper32(__va_to_pa(pldat->tp_desc_v, pldat)),
+		XEC_DESC_CTRL6(pldat->net_base));
+	writel(ENET_TX_DESC << 16,
+		XEC_DESC_CTRL5(pldat->net_base));
+	writel(lower32(__va_to_pa(pldat->rf_desc_v, pldat)),
+		XEC_DESC_CTRL2(pldat->net_base));
+	writel(upper32(__va_to_pa(pldat->rf_desc_v, pldat)),
+		XEC_DESC_CTRL1(pldat->net_base));
+	writel(lower32(__va_to_pa(pldat->rr_desc_v, pldat)),
+		XEC_DESC_CTRL3(pldat->net_base));
+	val = ENET_RX_DESC & 0xFFF;
+	val |= ENET_MAXF_SIZE << 16;
+	writel(val, XEC_DESC_CTRL4(pldat->net_base));
 
-	/* Set TX/RX Config */
-	writel(pldat->txdesc_sz - 1, XEC_IOC_TX_CONFIG(pldat->net_ioc_base));
-	writel((pldat->rxdesc_sz - 1) | (ENET_MAXF_SIZE << 16), XEC_IOC_RX_CONFIG(pldat->net_ioc_base));
+	return 0;
 
-	/* Set TX/RX Head */
-	value = readl(XEC_IOC_CH_TX_HEAD_POINTER(pldat->net_ioc_ch_base));
-	writel(value, XEC_IOC_CH_TX_TAIL_POINTER(pldat->net_ioc_ch_base));
-	value = readl(XEC_IOC_CH_RX_HEAD_POINTER(pldat->net_ioc_ch_base));
-	value = (value + sizeof(struct xec_generic_desc_t) * (pldat->rxdesc_sz - 1)) % (sizeof(struct xec_generic_desc_t) * (pldat->rxdesc_sz));
-	writel(value, XEC_IOC_CH_RX_TAIL_POINTER(pldat->net_ioc_ch_base));
-
-	dev_dbg(&pldat->pdev->dev, "tx head 0x%x, tail 0x%x", \
-		readl(XEC_IOC_CH_TX_HEAD_POINTER(pldat->net_ioc_ch_base)), \
-		readl(XEC_IOC_CH_TX_TAIL_POINTER(pldat->net_ioc_ch_base)));
-	dev_dbg(&pldat->pdev->dev, "rx head 0x%x, tail 0x%x", \
-		readl(XEC_IOC_CH_RX_HEAD_POINTER(pldat->net_ioc_ch_base)), \
-		readl(XEC_IOC_CH_RX_TAIL_POINTER(pldat->net_ioc_ch_base)));
+err_exit:
+	__xec_free_rx_skb(pldat);
+	return rc;
 }
 
-static void __nuclei_xec_init(struct netdata_local *pldat)
+static void __xec_eth_init(struct netdata_local *pldat)
 {
-	u32 tmp;
+	union xec_ctrl_reg_t ctrl_reg;
+	u32 val;
 
-	dev_dbg(&pldat->pdev->dev, "__nuclei_xec_init\n");
+	/* evalsoc rgmii 100M negative edge sample */
+	val = readl(XEC_IPG(pldat->net_base));
+	val |= BIT(17) | BIT(18);
+	writel(val, XEC_IPG(pldat->net_base));
 
-	/* Clear interrupts and disable interrupt */
-	writel(0, XEC_IOC_CH_INTERRUPT(pldat->net_ioc_ch_base));
-	writel(0, XEC_IOC_CH_INTERRUPT_ENABLE(pldat->net_ioc_ch_base));
-	nuclei_xec_disable_int(pldat, XEC_IOC_CH_INT_EN_MASK);
-	/* set XEC_MAC_CONFIGURE_0 */
-	tmp =	0x7<<18	|
-			0<<16 |        // MDIO_CL45_MODE disabled
-			1<<15 |        // MDC Clock Enable
-			0<<8 |         //  MDC_DIV_RATIO 0
-			0<<7 |         //  LOOPBACK_MODE disabled
-			0<<6 |         //  HDX_MODE full
-			0x0<<4 |       // REF_CLK_SEL 25MHz
-			0x0<<2 |       // MII_SPEED_SEL   10M
-			0x0<<0;        // MII_PORT_SEL   MII
-	writel(tmp, XEC_MAC_CONFIGURE_0(pldat->net_mac_base));
-	/* set XEC_MAC_TX_CONFIGURE_0 */
-	tmp =	0x0<<0 |       // TX_PAUSE_EN Disabled
-			0x1<<2 |       // TX_CRC_CTRL CRC Insertion
-			0x1<<4 |       // TX_PAD_EN ON
-			0x6<<5 |       // Tx Preamble Size 7 bytes
-			0x1f<<9;      // TX_IFG_PRG_SIZE
-	writel(tmp, XEC_MAC_TX_CONFIGURE_0(pldat->net_mac_base));
-	/* set XEC_MAC_TX_CONFIGURE_1 */
-	tmp =	0x0<<0 |       // TX_MTU_ENF_EN Disabled
-			0x0<<1 |       // TX_MTU_PRG_SEL 1500
-			0x0<<3 |       // TX_RETRY_EN OFF
-			0x1<<4 |       // TX_MAX_RETRY 2 times
-			0x0<<16;       // TX_PAUSE_TIME	0
-	writel(tmp, XEC_MAC_TX_CONFIGURE_1(pldat->net_mac_base));
-	/* set XEC_MAC_RX_CONFIGURE_0 */
-	tmp =	0x1<<0 |       // RX_PAUSE_EN ON
-			0x1<<1 |       // RX_CRC_CHECK_EN ON
-			0x1<<2 |       // RX_CRC_STRIP_EN ON
-			0x1<<3 |       // RX_PAD_STRIP_EN ON
-			0x0<<5 |       // RX_MGK_EN OFF
-			0x0<<8 |       // RX_MTU_ENF_EN OFF
-			0x0<<9 |       // TX_MTU_PRG_SEL 1500
-			0x0<<12;       // RX_UNI_PAUSE_EN OFF
-	writel(tmp, XEC_MAC_RX_CONFIGURE_0(pldat->net_mac_base));
+	ctrl_reg.val = readl(XEC_CTRL(pldat->net_base));
+	ctrl_reg.bits.txen = 0;
+	ctrl_reg.bits.rxen = 0;
+
+	/* MAC Init Configure */
+	/* disable loopback */
+	ctrl_reg.bits.loopback = 0;
+	/* full duplex mode */
+	ctrl_reg.bits.fullduplex = 1;
+	/* enable CRC*/
+	ctrl_reg.bits.crce = 1;
+	/* frame length check */
+	ctrl_reg.bits.flchk = 0;
+	/* Preamble length, 0x07 standard defination */
+	ctrl_reg.bits.prlen = 7;
+	/* remove VLAN Tag automatically for the Rx packets*/
+	ctrl_reg.bits.vlan_strip = 1;
+	ctrl_reg.bits.prom_mode = 0;
+	/* speed select 100M */
+	ctrl_reg.bits.speed = 1;
+	/* current select rgmii on fpga defalut */
+	ctrl_reg.bits.mii_mode = 1;
+	ctrl_reg.bits.tx_parser_en = 0;
+	/* Rx checksum enable */
+	ctrl_reg.bits.rx_chksum_en = 1;
+	/* Multicast address is legal */
+	ctrl_reg.bits.multi_all = 0;
+	/* Multicast address filter disable */
+	ctrl_reg.bits.rx_hash_en = 0;
+
+	/* receive boardcast frame enable */
+	ctrl_reg.bits.broad_en = 1;
+	ctrl_reg.bits.debug_mode = 0;
+	ctrl_reg.bits.magic_frame_en = 0;
+
+	ctrl_reg.bits.sys_clk_125 = 0;
+	ctrl_reg.bits.sys_clk_25 = 1;
+
+	writel(ctrl_reg.val, XEC_CTRL(pldat->net_base));
+
+	/* set max frame length by bytes */
+	writel(ENET_MAXF_SIZE, XEC_MTU(pldat->net_base));
+
+	__xec_params_setup(pldat);
 
 	/* Setup TX and RX descriptors */
 	__xec_txrx_desc_setup(pldat);
 
-	/* Setup packet filtering, enable own mac and broad cast */
-	__xec_set_swt_lut_da_only(pldat, 0x0, pldat->ndev->dev_addr, all_zeros);
-	__xec_set_swt_lut_da_only(pldat, 0x1, all_ffs, all_zeros);
-
 	/* Get the next TX buffer output index */
 	pldat->num_used_tx_buffs = 0;
-	pldat->last_tx_idx = readl(XEC_IOC_CH_TX_HEAD_POINTER(pldat->net_ioc_ch_base)) / (sizeof(struct xec_generic_desc_t));
+	pldat->last_tx_idx =
+		readl(XEC_MAILBOX2(pldat->net_base)) >> 16;
 
-	/* Disable TX/RX  */
-	__nuclei_xec_txrx_control(pldat, false, false);
+	/*
+	 * init recv data idx , which indicate
+	 * the real read pointer of the RX DESC ARRAY
+	 */
+	pldat->rx_idx = 0;
+
+	/* Clear and enable interrupts */
+	xec_eth_enable_int(pldat->net_base);
+
+	/* Enable controller */
+	ctrl_reg.val = readl(XEC_CTRL(pldat->net_base));
+	ctrl_reg.bits.txen = 1;
+	ctrl_reg.bits.rxen = 1;
+	writel(ctrl_reg.val, XEC_CTRL(pldat->net_base));
+
+	/* reset SRAM */
+	writel(1, XEC_SRAM_CTRL6(pldat->net_base));
+
+	/* prepare half RX DESC number to hardware when init */
+	writel(ENET_RX_DESC >> 1, XEC_MAILBOX1(pldat->net_base));
 }
 
-static void __nuclei_xec_shutdown(struct netdata_local *pldat)
+static void __xec_eth_shutdown(struct netdata_local *pldat)
 {
-	/* Just disable interrupt to disable XEC */
-	/* Don't disable xec tx/rx, it might still in transfer state */
-	nuclei_xec_disable_int(pldat, XEC_IOC_CH_INT_EN_MASK);
+	/* Reset ethernet and power down PHY */
+	__xec_eth_reset(pldat);
 }
 
 /*
@@ -914,30 +507,29 @@ static int xec_mdio_read(struct mii_bus *bus, int phy_id, int phyreg)
 {
 	struct netdata_local *pldat = bus->priv;
 	unsigned long timeout = jiffies + msecs_to_jiffies(100);
-	int lps;
-	u32 tmp;
+	u32 val;
 
-	// dev_dbg(&pldat->pdev->dev, "xec_mdio_read id %d, reg %d\n", phy_id, phyreg);
+	val = readl(XEC_MDIO_CTRL2(pldat->net_base));
+	val &= ~(0x1F << 26);
+	val |= phy_id << 26;
+	writel(val, XEC_MDIO_CTRL2(pldat->net_base));
 
-	tmp = (phy_id << 16) | // PHYAD
-		(phyreg << 0) | // REGAD
-		(0x3 << 26)   | // OP READ
-		(0x2 << 29)   | // PRE_SUP_SEL 32bits preamble
-		(0x1 << 31);    // BUSY trigger OP start 
-
-	writel(tmp, XEC_MAC_MDIO_CONTROL_STATUS(pldat->net_mac_base));
+	val = readl(XEC_MDIO_CTRL1(pldat->net_base));
+	/* clear MDIO_DATA, MDIO_REG_ADDR, MDIO_RD_WR */
+	val &= ~0x3FFFFF;
+	val |= phyreg << 16;
+	val |= MDIO_RD_WR;/* mdio read operation */
+	val |= MDIO_START;/* start mdio */
+	writel(val, XEC_MDIO_CTRL1(pldat->net_base));
 
 	/* Wait for unbusy status */
-	while (readl(XEC_MAC_MDIO_CONTROL_STATUS(pldat->net_mac_base)) & XEC_MDIO_BUSY) {
+	while ((val = readl(XEC_MDIO_STATUS(pldat->net_base))) & MDIO_STATUS_BUSY) {
 		if (time_after(jiffies, timeout))
 			return -EIO;
 		cpu_relax();
 	}
 
-	lps = readl(XEC_MAC_MDIO_DATA(pldat->net_mac_base));
-	// dev_dbg(&pldat->pdev->dev, "xec_mdio_read id %d, reg %d, value %d\n", phy_id, phyreg, lps);
-
-	return lps;
+	return val & 0xFFFF;
 }
 
 static int xec_mdio_write(struct mii_bus *bus, int phy_id, int phyreg,
@@ -945,33 +537,42 @@ static int xec_mdio_write(struct mii_bus *bus, int phy_id, int phyreg,
 {
 	struct netdata_local *pldat = bus->priv;
 	unsigned long timeout = jiffies + msecs_to_jiffies(100);
-	u32 tmp;
+	u32 val;
 
-	dev_dbg(&pldat->pdev->dev, "xec_mdio_write id %d, reg %d, data %d\n", phy_id, phyreg, phydata);
+	val = readl(XEC_MDIO_CTRL2(pldat->net_base));
+	val &= ~(0x1F << 26);
+	val |= phy_id << 26;
+	writel(val, XEC_MDIO_CTRL2(pldat->net_base));
 
-	tmp = (phy_id << 16) | // PHYAD
-		(phyreg << 0) | // REGAD
-		(0x1 << 26)   | // OP WRITE
-		(0x2 << 29)   | // PRE_SUP_SEL 32bits preamble
-		(0x1 << 31);    // BUSY trigger OP start 
+	/* start mdio */
+	val = readl(XEC_MDIO_CTRL1(pldat->net_base));
+	/* clear MDIO_DATA, MDIO_REG_ADDR, MDIO_RD_WR */
+	val &= ~0x3FFFFF;
+	val |= phyreg << 16;
+	val |= phydata; /* mdio write data */
+	val |= MDIO_START; /* start mdio */
+	writel(val, XEC_MDIO_CTRL1(pldat->net_base));
 
-	writel(tmp, XEC_MAC_MDIO_CONTROL_STATUS(pldat->net_mac_base));
-	writel(phydata, XEC_MAC_MDIO_DATA(pldat->net_mac_base));
-
-	/* Wait for completion */
-	while (readl(XEC_MAC_MDIO_CONTROL_STATUS(pldat->net_mac_base)) & XEC_MDIO_BUSY) {
+	/* Wait for unbusy status */
+	while (readl(XEC_MDIO_STATUS(pldat->net_base)) & MDIO_STATUS_BUSY) {
 		if (time_after(jiffies, timeout))
 			return -EIO;
 		cpu_relax();
 	}
-	dev_dbg(&pldat->pdev->dev, "xec_mdio_write id %d, reg %d successfully\n", phy_id, phyreg);
 
 	return 0;
 }
 
 static int xec_mdio_reset(struct mii_bus *bus)
 {
-	return __xec_mii_mngt_reset((struct netdata_local *)bus->priv);
+	int val;
+
+	xec_mdio_write(bus, 0, MII_BMCR, BMCR_RESET);
+	do {
+		val = xec_mdio_read(bus, 0, MII_BMCR);
+	} while (val & BMCR_RESET);
+
+	return 0;
 }
 
 static void xec_handle_link_change(struct net_device *ndev)
@@ -1004,19 +605,9 @@ static void xec_handle_link_change(struct net_device *ndev)
 	}
 
 	spin_unlock_irqrestore(&pldat->lock, flags);
-	netdev_info(ndev, "link change speed %d, duplex %d\n", pldat->speed, pldat->duplex);
 
-	if (status_change) {
+	if (status_change)
 		__xec_params_setup(pldat);
-	}
-}
-
-static void xec_phy_ready(struct net_device *ndev)
-{
-	ndev->phydev->link = 1;
-	ndev->phydev->speed = 100;
-	ndev->phydev->duplex = DUPLEX_FULL;
-	xec_handle_link_change(ndev);
 }
 
 static int xec_mii_probe(struct net_device *ndev)
@@ -1025,21 +616,28 @@ static int xec_mii_probe(struct net_device *ndev)
 	struct phy_device *phydev;
 
 	/* Attach to the PHY */
-	netdev_info(ndev, "using %s interface, phy_node 0x%x\n", \
-		phy_modes(pldat->phymode), pldat->phy_node);
+	if (xec_phy_interface_mode(&pldat->pdev->dev) == PHY_INTERFACE_MODE_GMII)
+		netdev_info(ndev, "using GMII interface\n");
+	else if (xec_phy_interface_mode(&pldat->pdev->dev) == PHY_INTERFACE_MODE_RGMII)
+		netdev_info(ndev, "using RGMII interface\n");
+	else if (xec_phy_interface_mode(&pldat->pdev->dev) == PHY_INTERFACE_MODE_MII)
+		netdev_info(ndev, "using MII interface\n");
+	else if (xec_phy_interface_mode(&pldat->pdev->dev) == PHY_INTERFACE_MODE_RMII)
+		netdev_info(ndev, "using RMII interface\n");
+	else
+		netdev_info(ndev, "using RGMII interface\n");
 
 	if (pldat->phy_node)
-		phydev = of_phy_find_device(pldat->phy_node);
+		phydev =  of_phy_find_device(pldat->phy_node);
 	else
 		phydev = phy_find_first(pldat->mii_bus);
 	if (!phydev) {
 		netdev_err(ndev, "no PHY found\n");
 		return -ENODEV;
 	}
-
 	phydev = phy_connect(ndev, phydev_name(phydev),
-			     &xec_handle_link_change,
-			     pldat->phymode);
+				&xec_handle_link_change,
+				xec_phy_interface_mode(&pldat->pdev->dev));
 	if (IS_ERR(phydev)) {
 		netdev_err(ndev, "Could not attach to PHY\n");
 		return PTR_ERR(phydev);
@@ -1059,13 +657,36 @@ static int xec_mii_probe(struct net_device *ndev)
 static int xec_mii_init(struct netdata_local *pldat)
 {
 	struct device_node *node;
+	union xec_ctrl_reg_t reg;
 	int err = -ENXIO;
+	int val;
 
 	pldat->mii_bus = mdiobus_alloc();
 	if (!pldat->mii_bus) {
 		err = -ENOMEM;
 		goto err_out;
 	}
+	reg.val = readl(XEC_CTRL(pldat->net_base));
+
+	/* Setup MII mode */
+	if (xec_phy_interface_mode(&pldat->pdev->dev) == PHY_INTERFACE_MODE_GMII)
+		reg.bits.mii_mode = 0;
+	else if (xec_phy_interface_mode(&pldat->pdev->dev) == PHY_INTERFACE_MODE_RGMII)
+		reg.bits.mii_mode = 1;
+	else if (xec_phy_interface_mode(&pldat->pdev->dev) == PHY_INTERFACE_MODE_MII)
+		reg.bits.mii_mode = 2;
+	else if (xec_phy_interface_mode(&pldat->pdev->dev) == PHY_INTERFACE_MODE_RMII)
+		reg.bits.mii_mode = 3;
+	else
+		reg.bits.mii_mode = 0;
+
+	writel(reg.val, XEC_CTRL(pldat->net_base));
+
+	val = readl(XEC_MDIO_CTRL1(pldat->net_base));
+	/* MDIO CLK SEL to 32DIV*/
+	val &= ~(0x7 << 24);
+	val |= 0x4 << 24;
+	writel(val, XEC_MDIO_CTRL1(pldat->net_base));
 
 	pldat->mii_bus->name = "xec_mii_bus";
 	pldat->mii_bus->read = &xec_mdio_read;
@@ -1077,7 +698,6 @@ static int xec_mii_init(struct netdata_local *pldat)
 	pldat->mii_bus->parent = &pldat->pdev->dev;
 
 	node = of_get_child_by_name(pldat->pdev->dev.of_node, "mdio");
-	dev_dbg(&pldat->pdev->dev, "xec_mii_init mdio node 0x%x\n", node);
 	err = of_mdiobus_register(pldat->mii_bus, node);
 	of_node_put(node);
 	if (err)
@@ -1099,181 +719,115 @@ err_out:
 static void __xec_handle_xmit(struct net_device *ndev)
 {
 	struct netdata_local *pldat = netdev_priv(ndev);
-	struct xec_txsts0_desc_t *p_txstat_desc;
-	u32 txcidx, txstat;
+	u32 txcidx;
+	struct sk_buff *skbptr;
 
-	txcidx = readl(XEC_IOC_CH_TX_HEAD_POINTER(pldat->net_ioc_ch_base)) / (sizeof(struct xec_generic_desc_t));
-	dev_dbg(&pldat->pdev->dev, "__xec_handle_xmit %s: txcidx %d, last_txidx %d, used %d\n", \
-		ndev->name, txcidx, pldat->last_tx_idx, pldat->num_used_tx_buffs);
-
-	while (pldat->num_used_tx_buffs > 0) {
-		unsigned int skblen = pldat->skblen[pldat->last_tx_idx];
-		/* A buffer is available, get buffer status */
-		p_txstat_desc = (struct xec_txsts0_desc_t *)((void *)&(pldat->tx_desc_v[pldat->last_tx_idx]));
-		_xec_dump_desc(pldat, (void *)p_txstat_desc);
+	txcidx = readl(XEC_MAILBOX2(pldat->net_base)) >> 16;
+	while (pldat->last_tx_idx != txcidx) {
+		skbptr = pldat->tp_buff_v[pldat->last_tx_idx];
+		dev_kfree_skb(skbptr);
+		pldat->tp_buff_v[pldat->last_tx_idx] = NULL;
 		/* Next buffer and decrement used buffer counter */
-		if ((p_txstat_desc->dinfo & XEC_DESC_DINFO_HWSET) || (p_txstat_desc->rsvd3 != 0)) {
-			dev_dbg(&pldat->pdev->dev, "tx descriptor not yet handled %s\n", ndev->name);
-			break;
-		} else {
-			if (pldat->num_used_tx_buffs > 0) {
-				pldat->num_used_tx_buffs--;
-			}
-			txstat = p_txstat_desc->txsts;
-			dev_dbg(&pldat->pdev->dev, "tx descriptor processed %d, txcidx %d: txsts 0x%x, used %d\n", \
-				pldat->last_tx_idx, txcidx, txstat, pldat->num_used_tx_buffs);
-			if (txstat & TXSTATUS_ERROR) { /* error occurred */
-				ndev->stats.tx_errors++;
-				if (txstat & TXSTATUS_DATA_FETCH_ERROR) {
-					ndev->stats.tx_carrier_errors++;
-				} else if (txstat & TXSTATUS_DESC_FETCH_ERROR) {
-					ndev->stats.tx_fifo_errors++;
-				}
-			} else {
-				ndev->stats.tx_packets++;
-				ndev->stats.tx_bytes += skblen;
-			}
-		}
-
+		pldat->num_used_tx_buffs--;
 		pldat->last_tx_idx++;
-		if (pldat->last_tx_idx >= pldat->txdesc_sz) {
+		if (pldat->last_tx_idx >= ENET_TX_DESC)
 			pldat->last_tx_idx = 0;
-		}
-		txcidx = readl(XEC_IOC_CH_TX_HEAD_POINTER(pldat->net_ioc_ch_base)) / (sizeof(struct xec_generic_desc_t));
-		if (pldat->last_tx_idx == txcidx) {
-			// break if we have go through all list
-			break;
-		}
 
 		/* Update collision counter */
-		// ndev->stats.collisions += TXSTATUS_COLLISIONS_GET(txstat);
+		ndev->stats.collisions += readl(XEC_TX_ABORT_COL(pldat->net_base)) & 0xFFFFFF;
+		ndev->stats.tx_fifo_errors += readl(XEC_TX_UNDERRUN(pldat->net_base));
+		ndev->stats.tx_aborted_errors += readl(XEC_TX_LATE_COL(pldat->net_base));
+		ndev->stats.tx_aborted_errors += readl(XEC_TX_MULT_COL(pldat->net_base));
+		ndev->stats.tx_packets += readl(XEC_TX_OK(pldat->net_base));
+		ndev->stats.tx_bytes += readl(XEC_TX_BYTE_CNT(pldat->net_base));
 
-		/* Any errors occurred? */
-		// if (txstat & TXSTATUS_ERROR) {
-		// 	if (txstat & TXSTATUS_UNDERRUN) {
-		// 		/* FIFO underrun */
-		// 		ndev->stats.tx_fifo_errors++;
-		// 	}
-		// 	if (txstat & TXSTATUS_LATECOLL) {
-		// 		/* Late collision */
-		// 		ndev->stats.tx_aborted_errors++;
-		// 	}
-		// 	if (txstat & TXSTATUS_EXCESSCOLL) {
-		// 		/* Excessive collision */
-		// 		ndev->stats.tx_aborted_errors++;
-		// 	}
-		// 	if (txstat & TXSTATUS_EXCESSDEFER) {
-		// 		/* Defer limit */
-		// 		ndev->stats.tx_aborted_errors++;
-		// 	}
-		// 	ndev->stats.tx_errors++;
-		// } else {
-		// 	/* Update stats */
-		// 	ndev->stats.tx_packets++;
-		// 	ndev->stats.tx_bytes += skblen;
-		// }
-
+		txcidx = readl(XEC_MAILBOX2(pldat->net_base)) >> 16;
 	}
 
+	if (pldat->num_used_tx_buffs <= ENET_TX_DESC/2) {
+		if (netif_queue_stopped(ndev))
+			netif_wake_queue(ndev);
+	}
 }
 
 static int __xec_handle_recv(struct net_device *ndev, int budget)
 {
 	struct netdata_local *pldat = netdev_priv(ndev);
-	struct sk_buff *skb;
-	u32 rxconsidx, rxprodidx, len;
-	xec_rxsts_t rcvsts;
-	struct xec_rxsts0_desc_t *p_rxstat_desc;
+	struct sk_buff *new_skb, *old_skb;
+	u32 rxconsidx, len, ethst;
 	int rx_done = 0;
+	u32 rxprodidx;
+	struct rr_desc_t *prxstat;
+	u32 tmp;
 
-	/* Get the current RX buffer indexes */
-	rxprodidx = readl(XEC_IOC_CH_RX_HEAD_POINTER(pldat->net_ioc_ch_base)) / (sizeof(struct xec_generic_desc_t));
-	rxconsidx = readl(XEC_IOC_CH_RX_TAIL_POINTER(pldat->net_ioc_ch_base)) / (sizeof(struct xec_generic_desc_t));
+	/* Get the current RRD indexes */
+	prxstat = &pldat->rr_desc_v[pldat->rx_idx];
+	/*
+	 * Maybe RRD is in external stroage, fence ops to assure
+	 * RRD value is vaild before using.
+	 */
+	rmb();
+	while (rx_done < budget && (prxstat->status1 & XEC_RRD_UPDT)) {
+		len = (prxstat->status1 >> 16) & 0x3FFF;
+		ethst = (prxstat->status0 >> 24) & 0x3;
 
-	rxconsidx += 1;
-	if (rxconsidx >= pldat->rxdesc_sz) {
-		rxconsidx = 0;
-	}
-	dev_dbg(&pldat->pdev->dev, "__xec_handle_recv %s start, proc %d, cons %d, budget %d\n", ndev->name, rxprodidx, rxconsidx, budget);
-
-	while (rx_done < budget && rxconsidx != rxprodidx) {
-		/* Get pointer to receive status */
-		p_rxstat_desc = (struct xec_rxsts0_desc_t *)((void *)&(pldat->rx_desc_v[rxconsidx]));
-		_xec_dump_desc(pldat, (void *)p_rxstat_desc);
-
-		if ((p_rxstat_desc->dinfo & XEC_DESC_DINFO_HWSET) == 0) {
-			dev_dbg(&pldat->pdev->dev, "rx descriptor %d, rxprodidx %d, received: flen %d, rxsts 0x%x, pktid %d\n", \
-				rxconsidx, rxprodidx, p_rxstat_desc->flen, p_rxstat_desc->rxsts.value, p_rxstat_desc->pktid);
-			len = p_rxstat_desc->flen + 1;
-
-			/* RX Status? */
-			rcvsts = p_rxstat_desc->rxsts;
-
-			if (rcvsts.bits.flenv && rcvsts.bits.frame_error == 0) { // Frame no error
-				if (rcvsts.bits.rut_vld) { /* Packet matched LUT */
-				// if (1) { /* Packet matched LUT */
-					dev_dbg(&pldat->pdev->dev, "recv data: matched lut %d, len %d, %*ph\n", rcvsts.bits.lut_idx, len, len, pldat->rx_buff_v + rxconsidx * ENET_MAXF_SIZE);
-					/* Packet is good */
-					skb = dev_alloc_skb(len);
-					if (!skb) {
-						ndev->stats.rx_dropped++;
-					} else {
-						/* Copy packet from buffer */
-						skb_put_data(skb,
-								pldat->rx_buff_v + rxconsidx * ENET_MAXF_SIZE,
-								len);
-
-						/* Pass to upper layer */
-						skb->protocol = eth_type_trans(skb, ndev);
-						netif_receive_skb(skb);
-						ndev->stats.rx_packets++;
-						ndev->stats.rx_bytes += len;
-					}
-				} else {
-					dev_dbg(&pldat->pdev->dev, "recv data discard: len %d\n", len);
-					ndev->stats.rx_dropped++;
-				}
-			} else {
-				int si = rcvsts.bits.frame_error;
-				/* Check statuses */
-				if (si == 0x1) {
-					/* Overrun error */
-					ndev->stats.rx_fifo_errors++;
-				} else if (si == 0x4) {
-					/* CRC error */
-					ndev->stats.rx_crc_errors++;
-				} else if (si == 0x6) {
-					/* Length error */
-					ndev->stats.rx_length_errors++;
-				} else {
-					/* Other error */
-					ndev->stats.rx_frame_errors++;
-				}
-				ndev->stats.rx_errors++;
-			}
-
-			/* Set rxbuff */
-			_xec_set_rxbuff64_desc((struct xec_generic_desc_t *)(void *)p_rxstat_desc, \
-				(void *)__get_rx_buff_p(pldat, rxconsidx), \
-				NULL, XEC_RX_SUMM_MASK, XEC_DESC_DINFO_RX_MASK);
-			writel(rxconsidx * (sizeof(struct xec_generic_desc_t)),
-				XEC_IOC_CH_RX_TAIL_POINTER(pldat->net_ioc_ch_base));
+		if (ethst) {
+			ndev->stats.rx_errors++;
 		} else {
-			dev_dbg(&pldat->pdev->dev, "rx descriptor not yet handled %s\n", ndev->name);
+			/* Packet is good */
+			new_skb = netdev_alloc_skb(ndev, ENET_MAXF_SIZE);
+			if (!new_skb) {
+				ndev->stats.rx_dropped++;
+			} else {
+				dma_addr_t dma_addr;
+
+				old_skb = pldat->rf_buff_v[pldat->rx_idx];
+				/* Pass to upper layer */
+				old_skb->dev = ndev;
+				skb_put(old_skb, len - ETH_FCS_LEN);
+				old_skb->protocol = eth_type_trans(old_skb, ndev);
+				netif_receive_skb(old_skb);
+				ndev->stats.rx_packets++;
+				ndev->stats.rx_bytes += len;
+
+				/* put new skb into descriptor */
+				pldat->rf_buff_v[pldat->rx_idx] = new_skb;
+				dma_addr = dma_map_single(pldat->ndev->dev.parent, new_skb->data,
+						ENET_MAXF_SIZE, DMA_BIDIRECTIONAL);
+				pldat->rf_desc_v[pldat->rx_idx].buf_addr_lo = lower32(dma_addr);
+				pldat->rf_desc_v[pldat->rx_idx].buf_addr_hi = upper32(dma_addr);
+			}
 		}
-		/* Increment consume index */
-		rxconsidx = rxconsidx + 1;
-		if (rxconsidx >= pldat->rxdesc_sz)
-			rxconsidx = 0;
+		/* set UPDT to zero indicate hardware can use this RRD,RFD */
+		prxstat->status1 &= ~XEC_RRD_UPDT;
+		wmb();
+
 		rx_done++;
-		rxprodidx = readl(XEC_IOC_CH_RX_HEAD_POINTER(pldat->net_ioc_ch_base)) / (sizeof(struct xec_generic_desc_t));
+		/* update product index */
+		tmp = readl(XEC_MAILBOX1(pldat->net_base));
+		rxprodidx = tmp & 0xFFF;
+		rxconsidx = (tmp >> 15) & 0xFFF;
+
+		if (rxprodidx + 1 >= ENET_RX_DESC) {
+			if (rxconsidx > 0)
+				rxprodidx = 0;
+		} else {
+			if ((rxprodidx + 1) != rxconsidx)
+				rxprodidx++ ;
+		}
+		writel(rxprodidx, XEC_MAILBOX1(pldat->net_base));
+		/* update receive data index */
+		pldat->rx_idx++;
+		if (pldat->rx_idx >= ENET_RX_DESC)
+			pldat->rx_idx = 0;
+		prxstat = &pldat->rr_desc_v[pldat->rx_idx];
+		rmb();
 	}
-	dev_dbg(&pldat->pdev->dev, "__xec_handle_recv %s end, proc %d, cons %d, done %d\n", ndev->name, rxprodidx, rxconsidx, rx_done);
 
 	return rx_done;
 }
 
-static int nuclei_xec_poll(struct napi_struct *napi, int budget)
+static int xec_eth_poll(struct napi_struct *napi, int budget)
 {
 	struct netdata_local *pldat = container_of(napi,
 			struct netdata_local, napi);
@@ -1281,7 +835,6 @@ static int nuclei_xec_poll(struct napi_struct *napi, int budget)
 	int rx_done = 0;
 	struct netdev_queue *txq = netdev_get_tx_queue(ndev, 0);
 
-	dev_dbg(&pldat->pdev->dev, "nuclei_xec_poll %s start\n", ndev->name);
 	__netif_tx_lock(txq, smp_processor_id());
 	__xec_handle_xmit(ndev);
 	__netif_tx_unlock(txq);
@@ -1289,120 +842,105 @@ static int nuclei_xec_poll(struct napi_struct *napi, int budget)
 
 	if (rx_done < budget) {
 		napi_complete_done(napi, rx_done);
-		nuclei_xec_enable_int(pldat, XEC_IOC_CH_INT_EN_MASK);
+		xec_eth_enable_int(pldat->net_base);
 	}
-	dev_dbg(&pldat->pdev->dev, "nuclei_xec_poll %s end\n", ndev->name);
 
 	return rx_done;
 }
 
-static irqreturn_t __nuclei_xec_interrupt(int irq, void *dev_id)
+static irqreturn_t __xec_eth_interrupt(int irq, void *dev_id)
 {
 	struct net_device *ndev = dev_id;
 	struct netdata_local *pldat = netdev_priv(ndev);
-	u32 tmp;
+	u32 val;
 
 	spin_lock(&pldat->lock);
 
-	tmp = readl(XEC_IOC_CH_INTERRUPT(pldat->net_ioc_ch_base));
-	/* Clear all interrupts */
-	writel(0, XEC_IOC_CH_INTERRUPT(pldat->net_ioc_ch_base));
-	if (tmp & XEC_IOC_CH_INT_EN_MASK) { // Received a packet
-		// TODO may not need to disable interrupt
-		nuclei_xec_disable_int(pldat, XEC_IOC_CH_INT_EN_MASK);
-		if (likely(napi_schedule_prep(&pldat->napi))) {
-			dev_dbg(&pldat->pdev->dev, "__nuclei_xec_interrupt __napi_schedule %s\n", ndev->name);
-			__napi_schedule(&pldat->napi);
-		} else {
-			dev_dbg(&pldat->pdev->dev, "__nuclei_xec_interrupt not ready %s\n", ndev->name);
-		}
-	}
+	val = readl(XEC_INT_STATUS(pldat->net_base));
+	/* Clear interrupts */
+	writel(val, XEC_INT_STATUS(pldat->net_base));
+
+	xec_eth_disable_int(pldat->net_base);
+	if (likely(napi_schedule_prep(&pldat->napi)))
+		__napi_schedule(&pldat->napi);
 
 	spin_unlock(&pldat->lock);
 
 	return IRQ_HANDLED;
 }
 
-static int nuclei_xec_close(struct net_device *ndev)
+static int xec_eth_close(struct net_device *ndev)
 {
 	unsigned long flags;
 	struct netdata_local *pldat = netdev_priv(ndev);
 
-	dev_dbg(&pldat->pdev->dev, "nuclei_xec_close %s\n", ndev->name);
 	if (netif_msg_ifdown(pldat))
 		dev_dbg(&pldat->pdev->dev, "shutting down %s\n", ndev->name);
 
 	napi_disable(&pldat->napi);
 	netif_stop_queue(ndev);
 
-	if (ndev->phydev)
-		phy_stop(ndev->phydev);
-
 	spin_lock_irqsave(&pldat->lock, flags);
-	__nuclei_xec_reset(pldat);
-	__nuclei_xec_shutdown(pldat);
-
+	__xec_eth_reset(pldat);
 	netif_carrier_off(ndev);
-
+	__xec_free_rx_skb(pldat);
+	__xec_free_tx_skb(pldat);
 	spin_unlock_irqrestore(&pldat->lock, flags);
 
+	if (ndev->phydev)
+		phy_stop(ndev->phydev);
 	clk_disable_unprepare(pldat->clk);
 
 	return 0;
 }
 
-static netdev_tx_t nuclei_xec_hard_start_xmit(struct sk_buff *skb,
-					   struct net_device *ndev)
+static netdev_tx_t xec_eth_hard_start_xmit(struct sk_buff *skb,
+						struct net_device *ndev)
 {
 	struct netdata_local *pldat = netdev_priv(ndev);
-	u32 len, txidx;
-	struct xec_generic_desc_t *ptxdesc;
+	u32 txidx;
+	struct tp_desc_t *txdesc;
+	u64 txbuf_addr;
 
-	len = skb->len;
-
-	dev_dbg(&pldat->pdev->dev, "nuclei_xec_hard_start_xmit %s\n", ndev->name);
 	spin_lock_irq(&pldat->lock);
 
-	_nuclei_xec_phy_dumpregs(pldat);
-
-	/* Get the next TX descriptor index */
-	txidx = readl(XEC_IOC_CH_TX_TAIL_POINTER(pldat->net_ioc_ch_base)) / sizeof(struct xec_generic_desc_t);
-
-	/* Setup control for the transfer */
-	ptxdesc = &pldat->tx_desc_v[txidx];
-
-	/* Check whether the tx descriptor is transmitted by xec */
-	if (ptxdesc->dinfo & XEC_DESC_DINFO_HWSET) {
-		dev_dbg(&pldat->pdev->dev, "nuclei_xec_hard_start_xmit %s, desc %d is not yet processed\n", ndev->name, txidx);
+	if (pldat->num_used_tx_buffs >= (ENET_TX_DESC - 1)) {
+		/* This function should never be called when there are no
+		   buffers */
+		netif_stop_queue(ndev);
 		spin_unlock_irq(&pldat->lock);
+		WARN(1, "BUG! TX request when no free TX buffers!\n");
 		return NETDEV_TX_BUSY;
 	}
 
-	/* Copy data to the DMA buffer */
-	memcpy(pldat->tx_buff_v + txidx * ENET_MAXF_SIZE, skb->data, len);
+	/* Get the next TX descriptor index */
+	txidx = readl(XEC_MAILBOX2(pldat->net_base)) & 0xFFFF;
+	pldat->tp_buff_v[txidx] = skb;
+	/* Setup control for the transfer */
+	txdesc = &pldat->tp_desc_v[txidx];
+	txdesc->cfg0 = skb->len & 0xFFFF;
+	txdesc->cfg1 = 1 << 31;
 
-	/* Save the buffer and increment the buffer counter */
-	pldat->skblen[txidx] = len;
+	/*flush skb buffer, fill skb buffer address to TX DESC */
+	txbuf_addr =  dma_map_single(ndev->dev.parent, skb->data, skb->len, DMA_TO_DEVICE);
+	txdesc->buf_addr_lo = lower32(txbuf_addr);
+	txdesc->buf_addr_hi = upper32(txbuf_addr);
+	wmb();
+	/* increment the buffer counter */
 	pldat->num_used_tx_buffs++;
 
-	dev_dbg(&pldat->pdev->dev, "nuclei_xec_hard_start_xmit idx %d, used tx buffers: %d\n", txidx, pldat->num_used_tx_buffs);
-	dev_dbg(&pldat->pdev->dev, "xmit data: len %d, %*ph\n", len, len, pldat->tx_buff_v + txidx * ENET_MAXF_SIZE);
-	_xec_txbuff64_desc_init(ptxdesc, (void *)__get_tx_buff_p(pldat, txidx), len - 1, XEC_TX_PKTOP_MASK, txidx, XEC_TX_SUMM_MASK);
-	_xec_dump_desc(pldat, (void *)ptxdesc);
-
-	txidx++;
-	if (txidx >= pldat->txdesc_sz)
-		txidx = 0;
-	writel(txidx * sizeof(struct xec_generic_desc_t), XEC_IOC_CH_TX_TAIL_POINTER(pldat->net_ioc_ch_base));
 	/* Start transmit */
-	_xec_desc_handover(ptxdesc, XEC_DESC_DINFO_TX_MASK);
+	txidx++;
+	if (txidx >= ENET_TX_DESC)
+		txidx = 0;
+	writel(txidx, XEC_MAILBOX2(pldat->net_base));
 
-	/* For first transmit, ioc tx start need to be set, and only can be set when tx descriptors prepared */
-	__nuclei_xec_txrx_control(pldat, true, true);
+	/* Stop queue if no more TX buffers */
+	if (pldat->num_used_tx_buffs >= (ENET_TX_DESC - 1))
+		netif_stop_queue(ndev);
 
 	spin_unlock_irq(&pldat->lock);
 
-	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
 }
 
@@ -1412,10 +950,11 @@ static int xec_set_mac_address(struct net_device *ndev, void *p)
 	struct netdata_local *pldat = netdev_priv(ndev);
 	unsigned long flags;
 
-	dev_dbg(&pldat->pdev->dev, "xec_set_mac_address %s\n", ndev->name);
+	if (netif_running(ndev))
+		return -EBUSY;
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
-	memcpy(ndev->dev_addr, addr->sa_data, ETH_ALEN);
+	eth_hw_addr_set(ndev, addr->sa_data);
 
 	spin_lock_irqsave(&pldat->lock, flags);
 
@@ -1427,93 +966,77 @@ static int xec_set_mac_address(struct net_device *ndev, void *p)
 	return 0;
 }
 
-static void nuclei_xec_set_multicast_list(struct net_device *ndev)
+static void xec_eth_set_multicast_list(struct net_device *ndev)
 {
 	struct netdata_local *pldat = netdev_priv(ndev);
+	struct netdev_hw_addr_list *mcptr = &ndev->mc;
 	struct netdev_hw_addr *ha;
+	u32 hash_val, hashlo, hashhi;
 	unsigned long flags;
-	int lut_idx = 0;
-	int macaddrn = 0;
+	union xec_ctrl_reg_t ctrl_reg;
 
-	dev_dbg(&pldat->pdev->dev, "nuclei_xec_set_multicast_list %s, flags 0x%x\n", ndev->name, ndev->flags);
 	spin_lock_irqsave(&pldat->lock, flags);
-
-	/* Count unicast and multicast macaddr numbers */
-	macaddrn = netdev_uc_count(ndev) + netdev_mc_count(ndev);
 
 	/* Set station address */
 	__xec_set_mac(pldat, ndev->dev_addr);
 
-	if ((ndev->flags & IFF_PROMISC) || (macaddrn > XEC_SWT_LUT_MAXNUM)) { /* Receive all packets */
-		__xec_set_swt_lut_da_only(pldat, lut_idx, NULL, all_ffs);
-		lut_idx ++;
-	} else {
-		/* Receive packets belongs to my own mac */
-		__xec_set_swt_lut_da_only(pldat, lut_idx, ndev->dev_addr, all_zeros);
-		lut_idx ++;
-		if (ndev->flags & IFF_ALLMULTI) {
-			__xec_set_swt_lut_da_only(pldat, lut_idx, all_bc_mac, all_bc_mask);
-			lut_idx ++;
-		} else {
-			/* Set broadcast address lut */
-			if (ndev->flags & IFF_BROADCAST) {
-				__xec_set_swt_lut_da_only(pldat, lut_idx, all_ffs, all_zeros);
-				lut_idx ++;
-			}
-			/* Set multicast address and unicast address luts */
-			if (macaddrn > 0) {
-				netdev_for_each_mc_addr(ha, ndev) {
-					__xec_set_swt_lut_da_only(pldat, lut_idx, ha->addr, all_zeros);
-					lut_idx ++;
-				}
-				netdev_for_each_uc_addr(ha, ndev) {
-					__xec_set_swt_lut_da_only(pldat, lut_idx, ha->addr, all_zeros);
-					lut_idx ++;
-				}
-			}
-		}
+	ctrl_reg.val = readl(XEC_CTRL(pldat->net_base));
+	ctrl_reg.bits.broad_en = 1;
+
+	if (ndev->flags & IFF_PROMISC)
+		ctrl_reg.bits.prom_mode = 1;
+	if (ndev->flags & IFF_ALLMULTI)
+		ctrl_reg.bits.multi_all = 1;
+
+	if (netdev_hw_addr_list_count(mcptr))
+		ctrl_reg.bits.rx_hash_en = 1;
+
+	writel(ctrl_reg.val, XEC_CTRL(pldat->net_base));
+
+	/* Set initial hash table */
+	hashlo = 0x0;
+	hashhi = 0x0;
+
+	/* 64 bits : multicast address in hash table */
+	netdev_hw_addr_list_for_each(ha, mcptr) {
+		hash_val = (ether_crc(6, ha->addr) >> 23) & 0x3F;
+
+		if (hash_val >= 32)
+			hashhi |= 1 << (hash_val - 32);
+		else
+			hashlo |= 1 << hash_val;
 	}
 
-	/* Clear remaining lut addresses */
-	while (lut_idx < XEC_SWT_LUT_MAXNUM) {
-		__xec_set_swt_lut_da_only(pldat, lut_idx, NULL, NULL);
-		lut_idx ++;
-	}
+	writel(hashlo, XEC_HASH_TAB_LO(pldat->net_base));
+	writel(hashhi, XEC_HASH_TAB_HI(pldat->net_base));
 
 	spin_unlock_irqrestore(&pldat->lock, flags);
 }
 
-static int nuclei_xec_open(struct net_device *ndev)
+static int xec_eth_open(struct net_device *ndev)
 {
 	struct netdata_local *pldat = netdev_priv(ndev);
 	int ret;
 
-	dev_dbg(&pldat->pdev->dev, "nuclei_xec_open %s\n", ndev->name);
-	if (netif_msg_ifup(pldat)) {
+	if (netif_msg_ifup(pldat))
 		dev_dbg(&pldat->pdev->dev, "enabling %s\n", ndev->name);
-	}
 
 	ret = clk_prepare_enable(pldat->clk);
 	if (ret)
 		return ret;
 
-	/* Do phy soft reset */
-	genphy_soft_reset(ndev->phydev);
-	phy_init_hw(ndev->phydev);
-	/* Suspended PHY makes XEC ethernet core block, so resume now */
 	phy_resume(ndev->phydev);
 
-	/* Reset but don't reinitialize xec */
-	__nuclei_xec_reset(pldat);
+	/* Reset and initialize */
+	__xec_eth_reset(pldat);
 
+	__xec_set_mac(pldat, ndev->dev_addr);
+	__xec_eth_init(pldat);
 
 	/* schedule a link state check */
 	phy_start(ndev->phydev);
 	netif_start_queue(ndev);
 	napi_enable(&pldat->napi);
-
-	/* Just enable interrupt to start xec */
-	nuclei_xec_enable_int(pldat, XEC_IOC_CH_INT_EN_MASK);
 
 	return 0;
 }
@@ -1521,7 +1044,7 @@ static int nuclei_xec_open(struct net_device *ndev)
 /*
  * Ethtool ops
  */
-static void nuclei_xec_ethtool_getdrvinfo(struct net_device *ndev,
+static void xec_eth_ethtool_getdrvinfo(struct net_device *ndev,
 	struct ethtool_drvinfo *info)
 {
 	strlcpy(info->driver, MODNAME, sizeof(info->driver));
@@ -1530,48 +1053,49 @@ static void nuclei_xec_ethtool_getdrvinfo(struct net_device *ndev,
 		sizeof(info->bus_info));
 }
 
-static u32 nuclei_xec_ethtool_getmsglevel(struct net_device *ndev)
+static u32 xec_eth_ethtool_getmsglevel(struct net_device *ndev)
 {
 	struct netdata_local *pldat = netdev_priv(ndev);
 
 	return pldat->msg_enable;
 }
 
-static void nuclei_xec_ethtool_setmsglevel(struct net_device *ndev, u32 level)
+static void xec_eth_ethtool_setmsglevel(struct net_device *ndev, u32 level)
 {
 	struct netdata_local *pldat = netdev_priv(ndev);
 
 	pldat->msg_enable = level;
 }
 
-static const struct ethtool_ops nuclei_xec_ethtool_ops = {
-	.get_drvinfo	= nuclei_xec_ethtool_getdrvinfo,
-	.get_msglevel	= nuclei_xec_ethtool_getmsglevel,
-	.set_msglevel	= nuclei_xec_ethtool_setmsglevel,
+static const struct ethtool_ops xec_eth_ethtool_ops = {
+	.get_drvinfo	= xec_eth_ethtool_getdrvinfo,
+	.get_msglevel	= xec_eth_ethtool_getmsglevel,
+	.set_msglevel	= xec_eth_ethtool_setmsglevel,
 	.get_link	= ethtool_op_get_link,
 	.get_link_ksettings = phy_ethtool_get_link_ksettings,
 	.set_link_ksettings = phy_ethtool_set_link_ksettings,
 };
 
 static const struct net_device_ops xec_netdev_ops = {
-	.ndo_open		= nuclei_xec_open,
-	.ndo_stop		= nuclei_xec_close,
-	.ndo_start_xmit		= nuclei_xec_hard_start_xmit,
-	.ndo_set_rx_mode	= nuclei_xec_set_multicast_list,
+	.ndo_open		= xec_eth_open,
+	.ndo_stop		= xec_eth_close,
+	.ndo_start_xmit		= xec_eth_hard_start_xmit,
+	.ndo_set_rx_mode	= xec_eth_set_multicast_list,
 	.ndo_do_ioctl		= phy_do_ioctl_running,
 	.ndo_set_mac_address	= xec_set_mac_address,
 	.ndo_validate_addr	= eth_validate_addr,
 };
 
-static int nuclei_xec_drv_probe(struct platform_device *pdev)
+static int xec_eth_drv_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	struct netdata_local *pldat;
 	struct net_device *ndev;
-	dma_addr_t dma_handle;
 	struct resource *res;
+	u8 addr[ETH_ALEN];
 	int irq, ret;
+	u64 noncache_region[2];
 
 	/* Get platform resources */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -1593,7 +1117,6 @@ static int nuclei_xec_drv_probe(struct platform_device *pdev)
 	SET_NETDEV_DEV(ndev, dev);
 
 	pldat = netdev_priv(ndev);
-
 	pldat->pdev = pdev;
 	pldat->ndev = ndev;
 
@@ -1622,13 +1145,7 @@ static int nuclei_xec_drv_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto err_out_disable_clocks;
 	}
-	pldat->net_mmc_base = pldat->net_base + 0x0100;
-	pldat->net_ioc_base = pldat->net_base + 0x0800;
-	pldat->net_ioc_ch_base = pldat->net_base + 0x0820;
-	pldat->net_mac_base = pldat->net_base + 0x0C00;
-	pldat->net_swt_base = pldat->net_base + 0x1000;
-
-	ret = devm_request_irq(dev, ndev->irq, __nuclei_xec_interrupt, 0,
+	ret = request_irq(ndev->irq, __xec_eth_interrupt, 0,
 			  ndev->name, ndev);
 	if (ret) {
 		dev_err(dev, "error requesting interrupt.\n");
@@ -1637,101 +1154,79 @@ static int nuclei_xec_drv_probe(struct platform_device *pdev)
 
 	/* Setup driver functions */
 	ndev->netdev_ops = &xec_netdev_ops;
-	ndev->ethtool_ops = &nuclei_xec_ethtool_ops;
-	ndev->watchdog_timeo = msecs_to_jiffies(2500);
+	ndev->ethtool_ops = &xec_eth_ethtool_ops;
 
-	if (get_sram_for_net(pldat)) {
-		if (PAGE_ALIGNED(pldat->dma_buff_size) != 0) {
-			pldat->dma_buff_size = PAGE_ALIGN(pldat->dma_buff_size) - PAGE_SIZE;
-		}
+	/* Get size of DMA descriptors region */
+	pldat->dma_buff_size = 
+		ENET_TX_DESC * (sizeof(struct tp_desc_t)) +
+		ENET_RX_DESC * (sizeof(struct rf_desc_t) + sizeof(struct rr_desc_t));
 
-		pldat->txdesc_sz = pldat->dma_buff_size  / 2 / (ENET_MAXF_SIZE + sizeof(struct xec_generic_desc_t));
-		pldat->rxdesc_sz = pldat->txdesc_sz;
-		if (pldat->txdesc_sz < 2) {
+	/* Allocate a chunk of non-cachable memory for the descriptors */
+	ret = of_property_read_u64_array(np, "desc_mem",  noncache_region, 2);
+	if (!ret) {
+		pldat->dma_buff_base_p = (dma_addr_t)noncache_region[0];
+		pldat->dma_buff_base_v = ioremap(pldat->dma_buff_base_p, noncache_region[1]);
+		if (pldat->dma_buff_base_v == NULL) {
 			ret = -ENOMEM;
 			goto err_out_free_irq;
 		}
-		netdev_info(ndev, "Using SRAM as TX/RX descriptor and TX/RX packet buffer\n");
+		pldat->desc_memtype = 1;
 	} else {
-		/* Get size of DMA buffers/descriptors region */
-		pldat->txdesc_sz = ENET_TX_DESC;
-		pldat->rxdesc_sz = ENET_RX_DESC;
-
-		pldat->dma_buff_size = (pldat->txdesc_sz + pldat->rxdesc_sz) * (ENET_MAXF_SIZE +
-			+ sizeof(struct xec_generic_desc_t));
+		dma_addr_t dma_handle;
 
 		ret = dma_coerce_mask_and_coherent(dev, DMA_BIT_MASK(32));
 		if (ret)
 			goto err_out_free_irq;
 
 		pldat->dma_buff_size = PAGE_ALIGN(pldat->dma_buff_size);
-
 		/* Allocate a chunk of memory for the DMA ethernet buffers
-			and descriptors */
-		pldat->dma_buff_base_v =
-			dma_alloc_coherent(dev,
-						pldat->dma_buff_size, &dma_handle,
-						GFP_KERNEL);
+		   and descriptors */
+		pldat->dma_buff_base_v = dma_alloc_coherent(dev,
+						   pldat->dma_buff_size, &dma_handle,
+						   GFP_KERNEL);
 		if (pldat->dma_buff_base_v == NULL) {
 			ret = -ENOMEM;
 			goto err_out_free_irq;
 		}
+		pldat->desc_memtype = 0;
 		pldat->dma_buff_base_p = dma_handle;
-		netdev_info(ndev, "Using System RAM as TX/RX descriptor and TX/RX packet buffer\n");
 	}
-
-	netdev_info(ndev, "IO address space     :%pR\n", res);
-	netdev_info(ndev, "IO address size      :%zd\n",
+	netdev_dbg(ndev, "IO address space     :%pR\n", res);
+	netdev_dbg(ndev, "IO address size      :%zd\n",
 			(size_t)resource_size(res));
-	netdev_info(ndev, "IO address (mapped)  :0x%p\n",
+	netdev_dbg(ndev, "IO address (mapped)  :0x%p\n",
 			pldat->net_base);
-	netdev_info(ndev, "IRQ number           :%d\n", ndev->irq);
-	netdev_info(ndev, "DMA buffer size      :%zd\n", pldat->dma_buff_size);
-	netdev_info(ndev, "DMA buffer P address :%pad\n",
+	netdev_dbg(ndev, "IRQ number           :%d\n", ndev->irq);
+	netdev_dbg(ndev, "DMA buffer size      :%zd\n", pldat->dma_buff_size);
+	netdev_dbg(ndev, "DMA buffer P address :%pad\n",
 			&pldat->dma_buff_base_p);
-	netdev_info(ndev, "DMA buffer V address :0x%p\n",
+	netdev_dbg(ndev, "DMA buffer V address :0x%p\n",
 			pldat->dma_buff_base_v);
-	netdev_info(ndev, "TX Desc count : %d\n",
-			pldat->txdesc_sz);
-	netdev_info(ndev, "RX Desc count : %d\n",
-			pldat->rxdesc_sz);
+
+	pldat->rx_idx = 0;
 
 	pldat->phy_node = of_parse_phandle(np, "phy-handle", 0);
-	pldat->skblen = kmalloc(sizeof(unsigned int) * pldat->txdesc_sz, GFP_KERNEL);
-	if (pldat->skblen == NULL) {
-		ret = -ENOMEM;
-		goto err_out_free_irq;
-	}
 
 	/* Get MAC address from current HW setting (POR state is all zeros) */
-	__xec_get_mac(pldat, ndev->dev_addr);
+	__xec_get_mac(pldat, addr);
+	eth_hw_addr_set(ndev, addr);
 
 	if (!is_valid_ether_addr(ndev->dev_addr)) {
-		const char *macaddr = of_get_mac_address(np);
-		if (!IS_ERR(macaddr))
-			ether_addr_copy(ndev->dev_addr, macaddr);
+		of_get_ethdev_address(np, ndev);
 	}
 	if (!is_valid_ether_addr(ndev->dev_addr))
 		eth_hw_addr_random(ndev);
 
-	/* then shut everything down to save power */
-	__nuclei_xec_shutdown(pldat);
-
 	/* Set default parameters */
 	pldat->msg_enable = NETIF_MSG_LINK;
-
-	/* Force an MII interface reset and clock setup */
-	__xec_mii_mngt_reset(pldat);
 
 	/* Force default PHY interface setup in chip, this will probably be
 	   changed by the PHY driver */
 	pldat->link = 0;
 	pldat->speed = SPEED_100;
 	pldat->duplex = DUPLEX_FULL;
-	pldat->phymode = xec_phy_interface_mode(dev);
-	__nuclei_xec_init(pldat);
 
-	netif_napi_add(ndev, &pldat->napi, nuclei_xec_poll, NAPI_WEIGHT);
+	netif_napi_add_weight(ndev, &pldat->napi, xec_eth_poll, NAPI_WEIGHT);
 
 	ret = register_netdev(ndev);
 	if (ret) {
@@ -1745,7 +1240,7 @@ static int nuclei_xec_drv_probe(struct platform_device *pdev)
 		goto err_out_unregister_netdev;
 
 	netdev_info(ndev, "XEC mac at 0x%08lx irq %d\n",
-	       (unsigned long)res->start, ndev->irq);
+			(unsigned long)res->start, ndev->irq);
 
 	device_init_wakeup(dev, 1);
 	device_set_wakeup_enable(dev, 0);
@@ -1755,11 +1250,14 @@ static int nuclei_xec_drv_probe(struct platform_device *pdev)
 err_out_unregister_netdev:
 	unregister_netdev(ndev);
 err_out_dma_unmap:
-	dma_free_coherent(dev, pldat->dma_buff_size,
-				  pldat->dma_buff_base_v,
-				  pldat->dma_buff_base_p);
+	if (pldat->desc_memtype)
+		iounmap(pldat->dma_buff_base_v);
+	else
+		dma_free_coherent(dev, pldat->dma_buff_size,
+					pldat->dma_buff_base_v,
+					pldat->dma_buff_base_p);
 err_out_free_irq:
-	devm_free_irq(dev, ndev->irq, ndev);
+	free_irq(ndev->irq, ndev);
 err_out_iounmap:
 	iounmap(pldat->net_base);
 err_out_disable_clocks:
@@ -1773,33 +1271,32 @@ err_exit:
 	return ret;
 }
 
-static int nuclei_xec_drv_remove(struct platform_device *pdev)
+static int xec_eth_drv_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct netdata_local *pldat = netdev_priv(ndev);
 
 	unregister_netdev(ndev);
 
-	dma_free_coherent(&pldat->pdev->dev, pldat->dma_buff_size,
-				  pldat->dma_buff_base_v,
-				  pldat->dma_buff_base_p);
-	devm_free_irq(&pdev->dev, ndev->irq, ndev);
+	if (pldat->desc_memtype)
+		iounmap(pldat->dma_buff_base_v);
+	else
+		dma_free_coherent(&pldat->pdev->dev, pldat->dma_buff_size,
+					pldat->dma_buff_base_v,
+					pldat->dma_buff_base_p);
+	free_irq(ndev->irq, ndev);
 	iounmap(pldat->net_base);
 	mdiobus_unregister(pldat->mii_bus);
 	mdiobus_free(pldat->mii_bus);
 	clk_disable_unprepare(pldat->clk);
 	clk_put(pldat->clk);
 	free_netdev(ndev);
-	if (pldat->skblen) {
-		kfree(pldat->skblen);
-	}
 
 	return 0;
 }
 
 #ifdef CONFIG_PM
-/* TODO Not yet tested and developed */
-static int nuclei_xec_drv_suspend(struct platform_device *pdev,
+static int xec_eth_drv_suspend(struct platform_device *pdev,
 	pm_message_t state)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
@@ -1811,24 +1308,25 @@ static int nuclei_xec_drv_suspend(struct platform_device *pdev,
 	if (ndev) {
 		if (netif_running(ndev)) {
 			netif_device_detach(ndev);
-			__nuclei_xec_shutdown(pldat);
+			__xec_eth_shutdown(pldat);
 			clk_disable_unprepare(pldat->clk);
 
 			/*
 			 * Reset again now clock is disable to be sure
 			 * EMC_MDC is down
 			 */
-			__nuclei_xec_reset(pldat);
+			__xec_eth_reset(pldat);
 		}
 	}
 
 	return 0;
 }
 
-static int nuclei_xec_drv_resume(struct platform_device *pdev)
+static int xec_eth_drv_resume(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct netdata_local *pldat;
+	int ret;
 
 	if (device_may_wakeup(&pdev->dev))
 		disable_irq_wake(ndev->irq);
@@ -1838,11 +1336,13 @@ static int nuclei_xec_drv_resume(struct platform_device *pdev)
 			pldat = netdev_priv(ndev);
 
 			/* Enable interface clock */
-			clk_enable(pldat->clk);
+			ret = clk_enable(pldat->clk);
+			if (ret)
+				return ret;
 
 			/* Reset and initialize */
-			__nuclei_xec_reset(pldat);
-			__nuclei_xec_init(pldat);
+			__xec_eth_reset(pldat);
+			__xec_eth_init(pldat);
 
 			netif_device_attach(ndev);
 		}
@@ -1852,27 +1352,26 @@ static int nuclei_xec_drv_resume(struct platform_device *pdev)
 }
 #endif
 
-static const struct of_device_id nuclei_xec_match[] = {
-	{ .compatible = "nuclei,xec-1.0.0" },
+static const struct of_device_id xec_eth_match[] = {
+	{ .compatible = "nuclei,xec" },
 	{ }
 };
-MODULE_DEVICE_TABLE(of, nuclei_xec_match);
+MODULE_DEVICE_TABLE(of, xec_eth_match);
 
-static struct platform_driver nuclei_xec_driver = {
-	.probe		= nuclei_xec_drv_probe,
-	.remove		= nuclei_xec_drv_remove,
+static struct platform_driver xec_eth_driver = {
+	.probe		= xec_eth_drv_probe,
+	.remove		= xec_eth_drv_remove,
 #ifdef CONFIG_PM
-	.suspend	= nuclei_xec_drv_suspend,
-	.resume		= nuclei_xec_drv_resume,
+	.suspend	= xec_eth_drv_suspend,
+	.resume		= xec_eth_drv_resume,
 #endif
 	.driver		= {
 		.name	= MODNAME,
-		.of_match_table = nuclei_xec_match,
+		.of_match_table = xec_eth_match,
 	},
 };
 
-module_platform_driver(nuclei_xec_driver);
+module_platform_driver(xec_eth_driver);
 
-MODULE_AUTHOR("Huaqi Fang <hqfang@nucleisys.com>");
-MODULE_DESCRIPTION("Nuclei Ethernet Driver");
+MODULE_DESCRIPTION("NUCLEI XEC Ethernet Driver");
 MODULE_LICENSE("GPL");
