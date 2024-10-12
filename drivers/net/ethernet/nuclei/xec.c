@@ -17,6 +17,7 @@
 #include <linux/phy.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
+#include <linux/of_reserved_mem.h>
 
 #define MODNAME "nuclei-xec"
 #define DRV_VERSION "2.00"
@@ -1095,7 +1096,8 @@ static int xec_eth_drv_probe(struct platform_device *pdev)
 	struct resource *res;
 	u8 addr[ETH_ALEN];
 	int irq, ret;
-	u64 noncache_region[2];
+	struct device_node *node;
+	struct reserved_mem *rmem;
 
 	/* Get platform resources */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -1162,10 +1164,21 @@ static int xec_eth_drv_probe(struct platform_device *pdev)
 		ENET_RX_DESC * (sizeof(struct rf_desc_t) + sizeof(struct rr_desc_t));
 
 	/* Allocate a chunk of non-cachable memory for the descriptors */
-	ret = of_property_read_u64_array(np, "desc_mem",  noncache_region, 2);
-	if (!ret) {
-		pldat->dma_buff_base_p = (dma_addr_t)noncache_region[0];
-		pldat->dma_buff_base_v = ioremap(pldat->dma_buff_base_p, noncache_region[1]);
+	node = of_parse_phandle(np, "desc_mem", 0);
+	if (node) {
+		rmem = of_reserved_mem_lookup(node);
+		of_node_put(node);
+		if (!rmem) {
+			dev_err(dev, "unable to resolve desc_mem\n");
+			return -EINVAL;
+		}
+		if (pldat->dma_buff_size > rmem->size) {
+			dev_err(dev, "reserved size:0x%d is less than desc size:0x%x\n",
+				rmem->size, pldat->dma_buff_size);
+			return -EINVAL;
+		}
+		pldat->dma_buff_base_p = (dma_addr_t)rmem->base;
+		pldat->dma_buff_base_v = ioremap(pldat->dma_buff_base_p, rmem->size);
 		if (pldat->dma_buff_base_v == NULL) {
 			ret = -ENOMEM;
 			goto err_out_free_irq;
