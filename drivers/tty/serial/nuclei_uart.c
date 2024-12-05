@@ -272,33 +272,12 @@ static void __ssp_transmit_char(struct nuclei_serial_port *ssp, int ch)
  */
 static void __ssp_transmit_chars(struct nuclei_serial_port *ssp)
 {
-	struct circ_buf *xmit = &ssp->port.state->xmit;
-	int count;
+	u8 ch;
 
-	if (ssp->port.x_char) {
-		__ssp_transmit_char(ssp, ssp->port.x_char);
-		ssp->port.icount.tx++;
-		ssp->port.x_char = 0;
-		return;
-	}
-	if (uart_circ_empty(xmit) || uart_tx_stopped(&ssp->port)) {
-		nuclei_serial_stop_tx(&ssp->port);
-		return;
-	}
-	count = NUCLEI_TX_FIFO_DEPTH;
-	do {
-		__ssp_transmit_char(ssp, xmit->buf[xmit->tail]);
-		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
-		ssp->port.icount.tx++;
-		if (uart_circ_empty(xmit))
-			break;
-	} while (--count > 0);
-
-	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
-		uart_write_wakeup(&ssp->port);
-
-	if (uart_circ_empty(xmit))
-		nuclei_serial_stop_tx(&ssp->port);
+	uart_port_tx_limited(&ssp->port, ch, NUCLEI_TX_FIFO_DEPTH,
+		true,
+		__ssp_transmit_char(ssp, ch),
+		({}));
 }
 
 /**
@@ -407,9 +386,9 @@ static char __ssp_receive_char(struct nuclei_serial_port *ssp, char *is_empty)
  */
 static void __ssp_receive_chars(struct nuclei_serial_port *ssp)
 {
-	unsigned char ch;
 	char is_empty;
 	int c;
+	u8 ch;
 
 	for (c = NUCLEI_RX_FIFO_DEPTH; c > 0; --c) {
 		ch = __ssp_receive_char(ssp, &is_empty);
@@ -417,7 +396,8 @@ static void __ssp_receive_chars(struct nuclei_serial_port *ssp)
 			break;
 
 		ssp->port.icount.rx++;
-		uart_insert_char(&ssp->port, 0, 0, ch, TTY_NORMAL);
+		if (!uart_prepare_sysrq_char(&ssp->port, ch))
+			uart_insert_char(&ssp->port, 0, 0, ch, TTY_NORMAL);
 	}
 
 	tty_flip_buffer_push(&ssp->port.state->port);
@@ -526,11 +506,11 @@ static irqreturn_t nuclei_serial_irq(int irq, void *dev_id)
 	struct nuclei_serial_port *ssp = dev_id;
 	u32 ip;
 
-	spin_lock(&ssp->port.lock);
+	uart_port_lock(&ssp->port);
 
 	ip = __ssp_readl(ssp, NUCLEI_SERIAL_IP_OFFS);
 	if (!ip) {
-		spin_unlock(&ssp->port.lock);
+		uart_port_unlock(&ssp->port);
 		return IRQ_NONE;
 	}
 
@@ -539,7 +519,7 @@ static irqreturn_t nuclei_serial_irq(int irq, void *dev_id)
 	if (ip & NUCLEI_SERIAL_IP_TXWM_MASK)
 		__ssp_transmit_chars(ssp);
 
-	spin_unlock(&ssp->port.lock);
+	uart_unlock_and_check_sysrq(&ssp->port);
 
 	return IRQ_HANDLED;
 }
@@ -658,7 +638,7 @@ static void nuclei_serial_set_termios(struct uart_port *port,
 				  ssp->port.uartclk / 16);
 	__ssp_update_baud_rate(ssp, rate);
 
-	spin_lock_irqsave(&ssp->port.lock, flags);
+	uart_port_lock_irqsave(&ssp->port, &flags);
 
 	/* Update the per-port timeout */
 	uart_update_timeout(port, termios->c_cflag, rate);
@@ -675,7 +655,7 @@ static void nuclei_serial_set_termios(struct uart_port *port,
 	if (v != old_v)
 		__ssp_writel(v, NUCLEI_SERIAL_RXCTRL_OFFS, ssp);
 
-	spin_unlock_irqrestore(&ssp->port.lock, flags);
+	uart_port_unlock_irqrestore(&ssp->port, flags);
 }
 
 static void nuclei_serial_release_port(struct uart_port *port)
@@ -800,13 +780,10 @@ static void nuclei_serial_console_write(struct console *co, const char *s,
 	if (!ssp)
 		return;
 
-	local_irq_save(flags);
-	if (ssp->port.sysrq)
-		locked = 0;
-	else if (oops_in_progress)
-		locked = spin_trylock(&ssp->port.lock);
+	if (oops_in_progress)
+		locked = uart_port_trylock_irqsave(&ssp->port, &flags);
 	else
-		spin_lock(&ssp->port.lock);
+		uart_port_lock_irqsave(&ssp->port, &flags);
 
 	ier = __ssp_readl(ssp, NUCLEI_SERIAL_IE_OFFS);
 	__ssp_writel(0, NUCLEI_SERIAL_IE_OFFS, ssp);
@@ -816,8 +793,7 @@ static void nuclei_serial_console_write(struct console *co, const char *s,
 	__ssp_writel(ier, NUCLEI_SERIAL_IE_OFFS, ssp);
 
 	if (locked)
-		spin_unlock(&ssp->port.lock);
-	local_irq_restore(flags);
+		uart_port_unlock_irqrestore(&ssp->port, flags);
 }
 
 static int __init nuclei_serial_console_setup(struct console *co, char *options)
@@ -926,12 +902,9 @@ static int nuclei_serial_probe(struct platform_device *pdev)
 	if (irq < 0)
 		return -EPROBE_DEFER;
 
-	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	base = devm_ioremap_resource(&pdev->dev, mem);
-	if (IS_ERR(base)) {
-		dev_err(&pdev->dev, "could not acquire device memory\n");
+	base = devm_platform_get_and_ioremap_resource(pdev, 0, &mem);
+	if (IS_ERR(base))
 		return PTR_ERR(base);
-	}
 
 	clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(clk)) {
@@ -1023,7 +996,7 @@ probe_out1:
 	return r;
 }
 
-static int nuclei_serial_remove(struct platform_device *dev)
+static void nuclei_serial_remove(struct platform_device *dev)
 {
 	struct nuclei_serial_port *ssp = platform_get_drvdata(dev);
 
@@ -1031,9 +1004,24 @@ static int nuclei_serial_remove(struct platform_device *dev)
 	uart_remove_one_port(&nuclei_serial_uart_driver, &ssp->port);
 	free_irq(ssp->port.irq, ssp);
 	clk_notifier_unregister(ssp->clk, &ssp->clk_notifier);
-
-	return 0;
 }
+
+static int nuclei_serial_suspend(struct device *dev)
+{
+	struct nuclei_serial_port *ssp = dev_get_drvdata(dev);
+
+	return uart_suspend_port(&nuclei_serial_uart_driver, &ssp->port);
+}
+
+static int nuclei_serial_resume(struct device *dev)
+{
+	struct nuclei_serial_port *ssp = dev_get_drvdata(dev);
+
+	return uart_resume_port(&nuclei_serial_uart_driver, &ssp->port);
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(nuclei_uart_pm_ops, nuclei_serial_suspend,
+				nuclei_serial_resume);
 
 static const struct of_device_id nuclei_serial_of_match[] = {
 	{ .compatible = "nuclei,uart0" },
@@ -1046,6 +1034,7 @@ static struct platform_driver nuclei_serial_platform_driver = {
 	.remove		= nuclei_serial_remove,
 	.driver		= {
 		.name	= NUCLEI_SERIAL_NAME,
+		.pm = pm_sleep_ptr(&nuclei_uart_pm_ops),
 		.of_match_table = of_match_ptr(nuclei_serial_of_match),
 	},
 };
