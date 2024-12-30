@@ -31,14 +31,14 @@
 
 /* TXDATA */
 #define NUCLEI_SERIAL_TXDATA_OFFS		0x0
-#define NUCLEI_SERIAL_TXDATA_FULL_SHIFT		31
+#define NUCLEI_SERIAL_TXDATA_FULL_SHIFT		14
 #define NUCLEI_SERIAL_TXDATA_FULL_MASK		(1 << NUCLEI_SERIAL_TXDATA_FULL_SHIFT)
 #define NUCLEI_SERIAL_TXDATA_DATA_SHIFT		0
 #define NUCLEI_SERIAL_TXDATA_DATA_MASK		(0xff << NUCLEI_SERIAL_TXDATA_DATA_SHIFT)
 
 /* RXDATA */
 #define NUCLEI_SERIAL_RXDATA_OFFS		0x4
-#define NUCLEI_SERIAL_RXDATA_EMPTY_SHIFT	31
+#define NUCLEI_SERIAL_RXDATA_EMPTY_SHIFT	15
 #define NUCLEI_SERIAL_RXDATA_EMPTY_MASK		(1 << NUCLEI_SERIAL_RXDATA_EMPTY_SHIFT)
 #define NUCLEI_SERIAL_RXDATA_DATA_SHIFT		0
 #define NUCLEI_SERIAL_RXDATA_DATA_MASK		(0xff << NUCLEI_SERIAL_RXDATA_DATA_SHIFT)
@@ -48,7 +48,7 @@
 #define NUCLEI_SERIAL_TXCTRL_TXCNT_SHIFT	16
 #define NUCLEI_SERIAL_TXCTRL_TXCNT_MASK		(0x7 << NUCLEI_SERIAL_TXCTRL_TXCNT_SHIFT)
 #define NUCLEI_SERIAL_TXCTRL_NSTOP_SHIFT	1
-#define NUCLEI_SERIAL_TXCTRL_NSTOP_MASK		(1 << NUCLEI_SERIAL_TXCTRL_NSTOP_SHIFT)
+#define NUCLEI_SERIAL_TXCTRL_NSTOP_MASK		(3 << NUCLEI_SERIAL_TXCTRL_NSTOP_SHIFT)
 #define NUCLEI_SERIAL_TXCTRL_TXEN_SHIFT		0
 #define NUCLEI_SERIAL_TXCTRL_TXEN_MASK		(1 << NUCLEI_SERIAL_TXCTRL_TXEN_SHIFT)
 
@@ -241,7 +241,7 @@ static u32 __ssp_readl(struct nuclei_serial_port *ssp, u16 offs)
  */
 static int nuclei_serial_is_txfifo_full(struct nuclei_serial_port *ssp)
 {
-	return __ssp_readl(ssp, NUCLEI_SERIAL_TXDATA_OFFS) &
+	return __ssp_readl(ssp, NUCLEI_SERIAL_IP_OFFS) &
 		NUCLEI_SERIAL_TXDATA_FULL_MASK;
 }
 
@@ -382,7 +382,7 @@ static char __ssp_receive_char(struct nuclei_serial_port *ssp, char *is_empty)
 	u32 v;
 	u8 ch;
 
-	v = __ssp_readl(ssp, NUCLEI_SERIAL_RXDATA_OFFS);
+	v = __ssp_readl(ssp, NUCLEI_SERIAL_IP_OFFS);
 
 	if (!is_empty)
 		WARN_ON(1);
@@ -390,7 +390,7 @@ static char __ssp_receive_char(struct nuclei_serial_port *ssp, char *is_empty)
 		*is_empty = (v & NUCLEI_SERIAL_RXDATA_EMPTY_MASK) >>
 			NUCLEI_SERIAL_RXDATA_EMPTY_SHIFT;
 
-	ch = (v & NUCLEI_SERIAL_RXDATA_DATA_MASK) >>
+	ch = (__ssp_readl(ssp, NUCLEI_SERIAL_RXDATA_OFFS) & NUCLEI_SERIAL_RXDATA_DATA_MASK) >>
 		NUCLEI_SERIAL_RXDATA_DATA_SHIFT;
 
 	return ch;
@@ -478,7 +478,7 @@ static void __ssp_set_stop_bits(struct nuclei_serial_port *ssp, char nstop)
 
 	v = __ssp_readl(ssp, NUCLEI_SERIAL_TXCTRL_OFFS);
 	v &= ~NUCLEI_SERIAL_TXCTRL_NSTOP_MASK;
-	v |= (nstop - 1) << NUCLEI_SERIAL_TXCTRL_NSTOP_SHIFT;
+	v |= ((nstop==2)?0x3:0x1) << NUCLEI_SERIAL_TXCTRL_NSTOP_SHIFT;
 	__ssp_writel(v, NUCLEI_SERIAL_TXCTRL_OFFS, ssp);
 }
 
@@ -735,7 +735,7 @@ static void nuclei_serial_poll_put_char(struct uart_port *port,
 #ifdef CONFIG_SERIAL_EARLYCON
 static void early_nuclei_serial_putc(struct uart_port *port, unsigned char c)
 {
-	while (__ssp_early_readl(port, NUCLEI_SERIAL_TXDATA_OFFS) &
+	while (__ssp_early_readl(port, NUCLEI_SERIAL_IP_OFFS) &
 	       NUCLEI_SERIAL_TXDATA_FULL_MASK)
 		cpu_relax();
 
