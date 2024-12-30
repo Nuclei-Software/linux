@@ -140,7 +140,7 @@ static void nuclei_spi_init(struct nuclei_spi *spi)
 
 	if ((spi->feature & NUCLEI_SPI_FEATURE_32B_DATA) == NUCLEI_SPI_FEATURE_32B_DATA) {
 		/* Set spi cr reg: master mode, uDMA disabled, ddr disabled, cs output enable, hdsmode disabled */
-		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, 0x11);
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, BIT(0)|BIT(3)|BIT(4)|BIT(13));
 		/* Set FORCE register to 0x1, force enable, write protect disable */
 		nuclei_spi_write(spi, NUCLEI_SPI_REG_FORCE, 0x1);
 	}
@@ -155,7 +155,7 @@ static void nuclei_spi_init(struct nuclei_spi *spi)
 			 NUCLEI_SPI_DELAY0_CSSCK(1) |
 			 NUCLEI_SPI_DELAY0_SCKCS(1));
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_DELAY1,
-			 NUCLEI_SPI_DELAY1_INTERCS(1) |
+			 NUCLEI_SPI_DELAY1_INTERCS(3) |
 			 NUCLEI_SPI_DELAY1_INTERXFR(0));
 
 	/* Exit specialized memory-mapped SPI flash mode */
