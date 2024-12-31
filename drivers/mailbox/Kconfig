@@ -295,4 +295,12 @@ config QCOM_IPCC
 	  acts as an interrupt controller for receiving interrupts from clients.
 	  Say Y here if you want to build this driver.
 
+config NUCLEI_MAILBOX
+	tristate "Nuclei Mailbox"
+	depends on RISCV || COMPILE_TEST
+	help
+	  Mailbox driver implementation for the Nuclei platform. It is used
+	  to send message between application processors and HSM. Say Y here if
+	  you want to build the Nuclei mailbox controller driver.
+
 endif
