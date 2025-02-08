@@ -440,8 +440,8 @@ static void __xec_eth_init(struct netdata_local *pldat)
 	ctrl_reg.bits.prom_mode = 0;
 	/* speed select 100M */
 	ctrl_reg.bits.speed = 1;
-	/* current select rgmii on fpga defalut */
-	ctrl_reg.bits.mii_mode = 1;
+	/* current select mii on testchip board */
+	ctrl_reg.bits.mii_mode = 2;
 	ctrl_reg.bits.tx_parser_en = 0;
 	/* Rx checksum enable */
 	ctrl_reg.bits.rx_chksum_en = 1;
