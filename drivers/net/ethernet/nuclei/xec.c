@@ -376,7 +376,7 @@ static int __xec_txrx_desc_setup(struct netdata_local *pldat)
 
 		prfdesc = &pldat->rf_desc_v[i];
 		dma_addr = dma_map_single(pldat->ndev->dev.parent,
-				skb->data, ENET_MAXF_SIZE, DMA_BIDIRECTIONAL);
+				skb->data, ENET_MAXF_SIZE, DMA_TO_DEVICE);
 		prfdesc->buf_addr_lo = lower32(dma_addr);
 		prfdesc->buf_addr_hi = upper32(dma_addr);
 
@@ -786,6 +786,9 @@ static int __xec_handle_recv(struct net_device *ndev, int budget)
 				/* Pass to upper layer */
 				old_skb->dev = ndev;
 				skb_put(old_skb, len - ETH_FCS_LEN);
+				dma_unmap_single(pldat->ndev->dev.parent,
+				(((dma_addr_t)(pldat->rf_desc_v[pldat->rx_idx].buf_addr_hi) << 32) |
+				pldat->rf_desc_v[pldat->rx_idx].buf_addr_lo), len, DMA_FROM_DEVICE);
 				old_skb->protocol = eth_type_trans(old_skb, ndev);
 				netif_receive_skb(old_skb);
 				ndev->stats.rx_packets++;
@@ -794,7 +797,7 @@ static int __xec_handle_recv(struct net_device *ndev, int budget)
 				/* put new skb into descriptor */
 				pldat->rf_buff_v[pldat->rx_idx] = new_skb;
 				dma_addr = dma_map_single(pldat->ndev->dev.parent, new_skb->data,
-						ENET_MAXF_SIZE, DMA_BIDIRECTIONAL);
+						ENET_MAXF_SIZE, DMA_TO_DEVICE);
 				pldat->rf_desc_v[pldat->rx_idx].buf_addr_lo = lower32(dma_addr);
 				pldat->rf_desc_v[pldat->rx_idx].buf_addr_hi = upper32(dma_addr);
 			}
@@ -1173,7 +1176,7 @@ static int xec_eth_drv_probe(struct platform_device *pdev)
 			return -EINVAL;
 		}
 		if (pldat->dma_buff_size > rmem->size) {
-			dev_err(dev, "reserved size:0x%d is less than desc size:0x%x\n",
+			dev_err(dev, "reserved size:0x%llx is less than desc size:0x%lx\n",
 				rmem->size, pldat->dma_buff_size);
 			return -EINVAL;
 		}
