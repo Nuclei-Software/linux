@@ -19,23 +19,6 @@
 #include <linux/mailbox/nuclei_mailbox.h>
 #include "nuclei_abi.h"
 
-#if 0
-/* cipher mode */
-#define NUCLEI_CIPHER_DEC	BIT(0)
-
-#define NUCLEI_CIPHER_DEC_SHIFT 	0
-#define NUCLEI_CIPHER_DEC_MSK	 	GENMASK(0,0)
-#define NUCLEI_CIPHER_ALG_SHIFT 	1
-#define NUCLEI_CIPHER_ALG_MSK	 	GENMASK(4,1)
-#define NUCLEI_CIPHER_MOD_SHIFT 	5
-#define NUCLEI_CIPHER_MOD_MSK		GENMASK(7,5)
-#define NUCLEI_CIPHER_KEYLEN_SHIFT 	8
-#define NUCLEI_CIPHER_KEYLEN_MSK	GENMASK(9,8)
-#define NUCLEI_CIPHER_KEYSEL_SHIFT 	10
-#define NUCLEI_CIPHER_KEYSEL_MSK	GENMASK(12,10)
-#define NUCLEI_CIPHER_INCTL_SHIFT 	13
-#define NUCLEI_CIPHER_INCTL_MSK		GENMASK(14,13)
-#endif
 /*
  * struct nuclei_crypt_list - struct for managing a list of crypto instance
  * @dev_list:		Used for doing a list of nuclei_crypto_info
@@ -76,9 +59,10 @@ struct nuclei_ahash_ctx {
 struct nuclei_ahash_rctx {
 	struct nuclei_crypto_info		*dev;
 	mailbox_hash_cmd_in_token 	hash_cmd_desc;
-	struct ahash_request		fallback_req;
-	u32				mode;
+	u32 mode;
+	u32 data_times;
 	int nrsg;
+	struct ahash_request		fallback_req;
 };
 
 /* the private variable of cipher */

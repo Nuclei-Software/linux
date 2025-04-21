@@ -9,7 +9,7 @@
 #define SECURE_SERVICE_OPCODE_ACRYP                         3
 #define SECURE_SERVICE_OPCODE_TRNG                          4
 #define SECURE_SERVICE_OPCODE_EFUSE                         5
-#define SECURE_SERVICE_OPCODE_BOOT                          6 
+#define SECURE_SERVICE_OPCODE_BOOT                          6
 /* hash algorithm */
 #define SECURE_SERVICE_HASH_SHA1                            1
 #define SECURE_SERVICE_HASH_MD5                             2
@@ -53,7 +53,7 @@
 #define SECURE_SERVICE_CRYP_CBC                             1
 #define SECURE_SERVICE_CRYP_CTR                             2
 #define SECURE_SERVICE_CRYP_CMAC                            3
-/* cryp algorithm */ 
+/* cryp algorithm */
 #define SECURE_SERVICE_CRYP_AES                             0
 #define SECURE_SERVICE_CRYP_SM4                             1
 #define CRYP_TABLE_MAX                                      2
@@ -65,27 +65,26 @@
 
 /* acryp */
 /* acryp algorithm */
-#define SECURE_SERVICE_ACRYP_ED25519                         1 
+#define SECURE_SERVICE_ACRYP_ED25519                         1
 #define SECURE_SERVICE_ACRYP_SM2                             2
-#define SECURE_SERVICE_ACRYP_RSA_PSS_2048                         3
-// #define SECURE_SERVICE_ACRYP_RSA3072                         4
-#define SECURE_SERVICE_ACRYP_RSA_PSS_4096                         5
+#define SECURE_SERVICE_ACRYP_RSA_PSS_2048                    3
+// #define SECURE_SERVICE_ACRYP_RSA3072                      4
+#define SECURE_SERVICE_ACRYP_RSA_PSS_4096                    5
 #define SECURE_SERVICE_ACRYP_MOD_EXP                         6
 #define ACRYP_SUPPORT_SIGN_ALGO_MAX_NUM                      6
 /* acryp mode when acryp algorithm is 1 ~ 5 */
 #define SECURE_SERVICE_ACRYP_VERIFY                          0
 #define SECURE_SERVICE_ACRYP_SIGNATURE                       1
 /* acryp mode when acryp algorithm is 6 */
-#define SECURE_SERVICE_ACRYP_MOD_EXP_RSA2048                 0
-#define SECURE_SERVICE_ACRYP_MOD_EXP_RSA4096                 1
-#define SECURE_SERVICE_ACRYP_MOD_EXP_NORMAL                  2
+#define SECURE_SERVICE_ACRYP_MOD_EXP_RSA                     0
+#define SECURE_SERVICE_ACRYP_MOD_EXP_NORMAL                  1
 
 /* efuse */
 /* efuse mode */
 #define SECURE_SERVICE_EFUSE_BIT                             0         /* efuse signle bit write/read */
-#define SECURE_SERVICE_EFUSE_WORD                            1         /* efuse signle word write/read */ 
+#define SECURE_SERVICE_EFUSE_WORD                            1         /* efuse signle word write/read */
 #define SECURE_SERVICE_EFUSE_WORD_CONTINUS                   2         /* efuse multiple words write/read */
-/* efuse write or read */ 
+/* efuse write or read */
 #define SECURE_SERVICE_EFUSE_WRITE                           0
 #define SECURE_SERVICE_EFUSE_READ                            1
 
@@ -153,7 +152,7 @@ typedef struct {
     uint32_t output_data_addr_low;      /* output data address low 32bits */
     uint32_t output_data_addr_hig;      /* output data address high 32bits */
     uint32_t output_data_length;        /* output data length in byte */
-    struct cryp_cmd_cfg cmd_cfg;       
+    struct cryp_cmd_cfg cmd_cfg;
 } cryp_in_token_t;
 
 typedef struct {
@@ -166,21 +165,21 @@ typedef struct {
     uint32_t input_signdata_addr_low;   /* signature or (M in M^0x10001 mod N) data address low 32bits */
     uint32_t input_signdata_addr_hig;   /* signature or (M in M^0x10001 mod N) data address high 32bits */
     uint32_t input_key_addr_low;        /* public/private key or (N in M^0x10001 mod N) data address low 32bits */
-    uint32_t input_key_addr_hig;        /* public/private key or (N in M^0x10001 mod N) data address high 32bits */ 
+    uint32_t input_key_addr_hig;        /* public/private key or (N in M^0x10001 mod N) data address high 32bits */
     struct cmd_cfg_t cmd_cfg;
 } acryp_in_token_t;
 
 typedef struct {
     struct common_head_t header;
     uint32_t identity;                  /* inactive temporarily */
-    uint32_t rsv1;                    
-    uint32_t rsv2;       
-    uint32_t rsv3;         
-    uint32_t rsv4;         
+    uint32_t rsv1;
+    uint32_t rsv2;
+    uint32_t rsv3;
+    uint32_t rsv4;
     uint32_t output_addr_low;   /* random data address low 32bits */
     uint32_t output_addr_hig;   /* random data address high 32bits */
     uint32_t output_len;        /* random data length in byte */
-    uint32_t rsv5;              
+    uint32_t rsv5;
 } trng_in_token_t;
 
 typedef struct {
@@ -190,19 +189,21 @@ typedef struct {
     uint32_t input_data_addr_low;        /* input data address low 32bits */
     uint32_t input_data_addr_hig;        /* input data address high 32bits */
     uint32_t input_data_length;          /* input data length in byte */
+    uint32_t key_data_addr_low;
+    uint32_t key_data_addr_hig;
     struct cmd_cfg_t cmd_cfg;
 } hash_in_token_t;
 
 typedef struct {
-    cryp_in_token_t cryp;           /* cryp secure service struct */  
-    uint32_t iv[4];                 /* IV data buffer */    
-    uint32_t key[8];                /* key data buffer */ 
+    cryp_in_token_t cryp;           /* cryp secure service struct */
+    uint32_t iv[4];                 /* IV data buffer */
+    uint32_t key[8];                /* key data buffer */
 } mailbox_cryp_cmd_in_token;
 
 typedef struct {
     hash_in_token_t hash;           /* hash secure service struct */
-    uint32_t rescv;  
-    uint32_t digest[16];            /* digest data buffer */
-    uint8_t key[128];            /* digest data buffer */
+    uint32_t rescv;
+    uint32_t rescv1[16];
+    uint32_t key[32];               /* key data buffer */
 } mailbox_hash_cmd_in_token;
 

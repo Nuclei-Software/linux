@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-config CRYPTO_DEV_NUCLEI
+config CRYPTO_DEV_NUCLEI_HSM
 	tristate "Nuclei Cryptographic Engine through HSM"
 	depends on OF
 	depends on NUCLEI_MAILBOX

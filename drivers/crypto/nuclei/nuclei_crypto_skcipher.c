@@ -212,11 +212,12 @@ void nuclei_skcipher_done(int err, void *_req)
 	struct skcipher_request *req = (struct skcipher_request *)mssg->ctx;
 	struct nuclei_cipher_rctx *rctx = skcipher_request_ctx(req);
 	struct crypto_skcipher *tfm = crypto_skcipher_reqtfm(req);
+	u32 ivsize = crypto_skcipher_ivsize(tfm);
 	struct nuclei_crypto_info *rkc = rctx->dev;
-	unsigned int nbytes;
+	u32 nbytes;
 
 	dma_unmap_single(rkc->dev, rctx->buf_dma, rctx->buflen,
-			 DMA_BIDIRECTIONAL);
+			 DMA_FROM_DEVICE);
 
 	if (unlikely(err)) {
 		dev_dbg(rkc->dev, "%s: %s request failed: %d\n", __func__,
@@ -230,6 +231,7 @@ void nuclei_skcipher_done(int err, void *_req)
 		err = -ENODATA;
 		goto out_free_buf;
 	}
+	memcpy(req->iv, ((mailbox_cryp_cmd_in_token *)mssg->data)->iv, ivsize);
 
 out_free_buf:
 	kfree(rctx->buf);
@@ -270,7 +272,7 @@ static int nuclei_cipher_run(struct crypto_engine *engine, void *async_req)
 	}
 
 	rctx->buf_dma = dma_map_single(rkc->dev, rctx->buf, rctx->buflen,
-				       DMA_BIDIRECTIONAL);
+				       DMA_TO_DEVICE);
 	if (unlikely(dma_mapping_error(rkc->dev, rctx->buf_dma))) {
 		err = -ENOMEM;
 		goto err_free_buf;
