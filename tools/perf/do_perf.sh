@@ -55,8 +55,9 @@ fi
 INSTDIR=$(readlink -f $INSTDIR)
 
 if [[ "$ARCH" == *"rv32"* ]] ; then
-    echo "Error: Linux Perf is not yet supported in rv32 linux"
-    exit 1
+    echo "Now build perf for $ARCH"
+    #echo "Error: Linux Perf is not yet supported in rv32 linux"
+    #exit 1
 fi
 
 build_perf $(pwd) $INSTDIR
