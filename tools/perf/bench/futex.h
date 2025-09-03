@@ -13,6 +13,19 @@
 #include <sys/types.h>
 #include <linux/futex.h>
 
+/**
+ * SYS_futex is expected from system C library,
+ * in glibc (/usr/include/bits/syscall.h defines it in terms of of NR_futex)
+ * some newer 32bit architectures e.g. RISCV32 is using 64bit time_t from
+ * get go unlike other 32bit architectures in glibc, therefore it wont have
+ * NR_futex defined but just NR_futex_time64 this aliases it to NR_futex
+ * so that SYS_futex is then defined for rv32
+*/
+
+#if !defined(SYS_futex) && defined(SYS_futex_time64)
+#define SYS_futex SYS_futex_time64
+#endif
+
 struct bench_futex_parameters {
 	bool silent;
 	bool fshared;
