@@ -51,8 +51,10 @@ function build_perf {
     # NO_LIBBPF=1 to avoid build libbpf, and avoid build error fatal error: libelf.h: No such file or directory
     # Currently build libbpf via tools/lib/bpf/Makefile dont allow extra cflags passed to, so unable to set correct libelf.h include directory
     make srctree=$srctree ARCH=riscv CROSS_COMPILE=${CROSS_COMPILE}- DESTDIR=$instdir LD="${CROSS_COMPILE}-ld ${EMUFLAGS}" NO_LIBBPF=1 install
+    retval=$?
     unset PKG_CONFIG_LIBDIR LDFLAGS EXTRA_CFLAGS CXXFLAGS
     popd
+    return $retval
 }
 
 pushd $SCRIPTDIR
@@ -71,8 +73,15 @@ if [[ "$ARCH" == *"rv32"* ]] ; then
 fi
 
 build_perf $(pwd) $INSTDIR
+retval=$?
 create_env $INSTDIR
 
 popd
 
-exit 0
+if [ "x$retval" == "x0" ] ; then
+    echo "OK: Build Linux Perf tool for $ARCH successfully!"
+else
+    echo "ERROR: Build Linux Perf tool for $ARCH failed!"
+fi
+
+exit $retval
