@@ -39,9 +39,19 @@ function build_perf {
     if [ "x${STATIC_BUILD}" == "x1" ] ; then
         EXT_LDFLAGS="-static "
     fi
-    make srctree=$srctree ARCH=riscv CROSS_COMPILE=${CROSS_COMPILE}- LDFLAGS="${ARCHABI_FLAGS} -L${instdir}/lib -lz" EXTRA_CFLAGS="${ARCHABI_FLAGS} -I${instdir}/include" CXXFLAGS="${ARCHABI_FLAGS} -I${instdir}/include"  DESTDIR=$instdir clean
+    if [[ "${ABI}" == *"32"* ]] ; then
+        EMUFLAGS="-m elf32lriscv"
+    fi
+    export PKG_CONFIG_LIBDIR=${instdir}/lib/pkgconfig
+    make srctree=$srctree ARCH=riscv CROSS_COMPILE=${CROSS_COMPILE}- LDFLAGS="${ARCHABI_FLAGS} -L${instdir}/lib -lz" EXTRA_CFLAGS="${ARCHABI_FLAGS} -I${instdir}/include -I${instdir}/include/traceevent" CXXFLAGS="${ARCHABI_FLAGS} -I${instdir}/include" DESTDIR=$instdir PKG_CONFIG_LIBDIR=${instdir}/lib/pkgconfig clean
     # need extra ldflags -lz to check libelf
-    make srctree=$srctree ARCH=riscv CROSS_COMPILE=${CROSS_COMPILE}- LDFLAGS="${EXT_LDFLAGS} ${ARCHABI_FLAGS} -L${instdir}/lib -lz" EXTRA_CFLAGS="${ARCHABI_FLAGS} -I${instdir}/include" CXXFLAGS="${ARCHABI_FLAGS} -I${instdir}/include"  DESTDIR=$instdir install
+    export LDFLAGS="${EXT_LDFLAGS} ${ARCHABI_FLAGS} -L${instdir}/lib -lz"
+    export EXTRA_CFLAGS="${ARCHABI_FLAGS} -I${instdir}/include -I${instdir}/include/traceevent"
+    export CXXFLAGS="${ARCHABI_FLAGS} -I${instdir}/include -I${instdir}/include/traceevent"
+    # NO_LIBBPF=1 to avoid build libbpf, and avoid build error fatal error: libelf.h: No such file or directory
+    # Currently build libbpf via tools/lib/bpf/Makefile dont allow extra cflags passed to, so unable to set correct libelf.h include directory
+    make srctree=$srctree ARCH=riscv CROSS_COMPILE=${CROSS_COMPILE}- DESTDIR=$instdir LD="${CROSS_COMPILE}-ld ${EMUFLAGS}" NO_LIBBPF=1 install
+    unset PKG_CONFIG_LIBDIR LDFLAGS EXTRA_CFLAGS CXXFLAGS
     popd
 }
 
