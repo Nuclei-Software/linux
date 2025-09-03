@@ -172,3 +172,4 @@ sphinx_*/
 # Rust analyzer configuration
 /rust-project.json
 tools/perf/install
+tools/install
