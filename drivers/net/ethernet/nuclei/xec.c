@@ -257,12 +257,21 @@ static void __xec_params_setup(struct netdata_local *pldat)
 		reg.bits.fullduplex = 0;
 	}
 
-	if (pldat->speed == SPEED_1000)
+	if (pldat->speed == SPEED_1000) {
 		reg.bits.speed = 2;
-	else if (pldat->speed == SPEED_100)
+		reg.bits.sys_clk_125 = 1;
+		reg.bits.sys_clk_25 = 0;
+	}
+	else if (pldat->speed == SPEED_100) {
 		reg.bits.speed = 1;
-	else
+		reg.bits.sys_clk_125 = 0;
+		reg.bits.sys_clk_25 = 1;
+	}
+	else {
 		reg.bits.speed = 0;
+		reg.bits.sys_clk_125 = 0;
+		reg.bits.sys_clk_25 = 1;
+	}
 
 	writel(reg.val, XEC_CTRL(pldat->net_base));
 }
@@ -272,7 +281,7 @@ static void __xec_eth_reset(struct netdata_local *pldat)
 	/* Reset all MAC logic */
 
 	pldat->duplex = DUPLEX_FULL;
-	pldat->speed = SPEED_100;
+	pldat->speed = SPEED_1000;
 }
 
 static inline phys_addr_t __va_to_pa(void *addr, struct netdata_local *pldat)
@@ -440,8 +449,6 @@ static void __xec_eth_init(struct netdata_local *pldat)
 	ctrl_reg.bits.prom_mode = 0;
 	/* speed select 100M */
 	ctrl_reg.bits.speed = 1;
-	/* current select rgmii on fpga defalut */
-	ctrl_reg.bits.mii_mode = 1;
 	ctrl_reg.bits.tx_parser_en = 0;
 	/* Rx checksum enable */
 	ctrl_reg.bits.rx_chksum_en = 1;
@@ -455,8 +462,8 @@ static void __xec_eth_init(struct netdata_local *pldat)
 	ctrl_reg.bits.debug_mode = 0;
 	ctrl_reg.bits.magic_frame_en = 0;
 
-	ctrl_reg.bits.sys_clk_125 = 0;
-	ctrl_reg.bits.sys_clk_25 = 1;
+	ctrl_reg.bits.sys_clk_125 = 1;
+	ctrl_reg.bits.sys_clk_25 = 0;
 
 	writel(ctrl_reg.val, XEC_CTRL(pldat->net_base));
 
@@ -644,7 +651,7 @@ static int xec_mii_probe(struct net_device *ndev)
 		return PTR_ERR(phydev);
 	}
 
-	phy_set_max_speed(phydev, SPEED_100);
+	phy_set_max_speed(phydev, SPEED_1000);
 
 	pldat->link = 0;
 	pldat->speed = 0;
@@ -1239,7 +1246,7 @@ static int xec_eth_drv_probe(struct platform_device *pdev)
 	/* Force default PHY interface setup in chip, this will probably be
 	   changed by the PHY driver */
 	pldat->link = 0;
-	pldat->speed = SPEED_100;
+	pldat->speed = SPEED_1000;
 	pldat->duplex = DUPLEX_FULL;
 
 	netif_napi_add_weight(ndev, &pldat->napi, xec_eth_poll, NAPI_WEIGHT);
