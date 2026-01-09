@@ -280,8 +280,6 @@ static void __xec_eth_reset(struct netdata_local *pldat)
 {
 	/* Reset all MAC logic */
 
-	pldat->duplex = DUPLEX_FULL;
-	pldat->speed = SPEED_1000;
 }
 
 static inline phys_addr_t __va_to_pa(void *addr, struct netdata_local *pldat)
@@ -461,9 +459,6 @@ static void __xec_eth_init(struct netdata_local *pldat)
 	ctrl_reg.bits.broad_en = 1;
 	ctrl_reg.bits.debug_mode = 0;
 	ctrl_reg.bits.magic_frame_en = 0;
-
-	ctrl_reg.bits.sys_clk_125 = 1;
-	ctrl_reg.bits.sys_clk_25 = 0;
 
 	writel(ctrl_reg.val, XEC_CTRL(pldat->net_base));
 
