@@ -295,4 +295,12 @@ config QCOM_IPCC
 	  acts as an interrupt controller for receiving interrupts from clients.
 	  Say Y here if you want to build this driver.
 
+config NUCLEI_IDU
+	tristate "NUCLEI IDU mailbox"
+	depends on RISCV || COMPILE_TEST
+	help
+	  Mailbox implementation for NUCLEI IDU(Interrupt Distribution Unit)
+	  hardware to Inter-Processor Communication between processors.
+	  Say Y here if you want to have this support.
+
 endif

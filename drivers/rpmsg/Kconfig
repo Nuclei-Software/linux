@@ -74,6 +74,16 @@ config RPMSG_QCOM_SMD
 	  providing communication channels to remote processors in Qualcomm
 	  platforms.
 
+config RPMSG_NUCLEI
+	bool "NUCLEI RPMSG driver on the AMP SOCs"
+	default n
+	depends on NUCLEI_IDU
+	select RPMSG_VIRTIO
+	help
+	  Say y here to enable support providing communication channels to
+	  remote processors in NUCLEI AMP platforms.
+	  This use IDU to communicate with remote processors.
+
 config RPMSG_VIRTIO
 	tristate "Virtio RPMSG bus driver"
 	depends on HAS_DMA
