@@ -23,7 +23,7 @@
 #define DRV_VERSION "2.00"
 
 #define ENET_MAXF_SIZE            1536
-#define ENET_RX_DESC              256
+#define ENET_RX_DESC              64
 #define ENET_TX_DESC              64
 
 #define NAPI_WEIGHT               64
@@ -166,6 +166,24 @@ struct rr_desc_t {
 };
 
 /*
+ * tx rx buf for xec send data or receive data,
+ * each rx buffer maxlen is ENET_MAXF_SIZE.
+ * this buffer will be set noncachable,
+ * which is used to improve performance of xec when syscache enable on NUCLEI P0 SOC
+ */
+struct tx_rx_buf_pool {
+	dma_addr_t rx_buf_p;
+	void *rx_buf_v;
+	dma_addr_t tx_buf_p;
+	void *tx_buf_v;
+	unsigned long rx_total_num;
+	unsigned long rx_free_num;
+	unsigned long rx_cust_num;
+	unsigned long tx_total_len;
+	unsigned long tx_cust_offset;
+};
+
+/*
  * Device driver data structure
  */
 struct netdata_local {
@@ -190,6 +208,8 @@ struct netdata_local {
 	/* record rx sk buffer address */
 	struct sk_buff		*rf_buff_v[ENET_RX_DESC];
 	struct rr_desc_t	*rr_desc_v;
+	/* tx rx non-cachable buffer for xec performance when syscache enable */
+	struct tx_rx_buf_pool tx_rx_nc_buf;
 	/* recv data index */
 	int					rx_idx;
 	int					link;
@@ -197,6 +217,80 @@ struct netdata_local {
 	int					duplex;
 	struct napi_struct	napi;
 };
+
+static int init_tx_rx_buf_pool(struct netdata_local *pldat, struct device_node *np)
+{
+	struct device_node *node;
+	struct reserved_mem *rmem;
+	unsigned long rx_buf_size;
+
+	node = of_parse_phandle(np, "txrx_buf", 0);
+	if (node) {
+		rmem = of_reserved_mem_lookup(node);
+		of_node_put(node);
+		if (!rmem) {
+			dev_err(&pldat->pdev->dev, "unable to resolve desc_mem\n");
+			return -EINVAL;
+		}
+	}
+
+	pldat->tx_rx_nc_buf.rx_total_num = ENET_RX_DESC;
+	pldat->tx_rx_nc_buf.rx_free_num = ENET_RX_DESC;
+	pldat->tx_rx_nc_buf.rx_cust_num = 0;
+	rx_buf_size = pldat->tx_rx_nc_buf.rx_total_num * ENET_MAXF_SIZE;
+	if (rmem->size < rx_buf_size + 32*1024) {
+		dev_err(&pldat->pdev->dev, "reserved size:0x%llx is less than rx tx buffer size:0x%lx\n",
+			rmem->size, rx_buf_size + 32*1024);
+		return -EINVAL;
+	}
+	pldat->tx_rx_nc_buf.rx_buf_p = (dma_addr_t)rmem->base;
+	pldat->tx_rx_nc_buf.rx_buf_v = ioremap(pldat->tx_rx_nc_buf.rx_buf_p, rmem->size);
+	pldat->tx_rx_nc_buf.tx_buf_p = pldat->tx_rx_nc_buf.rx_buf_p + rx_buf_size;
+	pldat->tx_rx_nc_buf.tx_buf_v = pldat->tx_rx_nc_buf.rx_buf_v + rx_buf_size;
+	pldat->tx_rx_nc_buf.tx_total_len = rmem->size - rx_buf_size;
+	pldat->tx_rx_nc_buf.tx_cust_offset = 0;
+
+	return 0;
+}
+
+static void put_rx_buf_to_pool(struct tx_rx_buf_pool *nc_buf)
+{
+	nc_buf->rx_free_num++;
+}
+
+static dma_addr_t get_rx_buf_from_pool(struct tx_rx_buf_pool *nc_buf)
+{
+	dma_addr_t addr = (dma_addr_t) -1;
+
+	if (nc_buf->rx_free_num > 0) {
+		addr = nc_buf->rx_buf_p + nc_buf->rx_cust_num * ENET_MAXF_SIZE;
+		nc_buf->rx_cust_num += 1;
+		if (nc_buf->rx_cust_num == nc_buf->rx_total_num)
+			nc_buf->rx_cust_num = 0;
+		nc_buf->rx_free_num--;
+	} else {
+		printk("%s no rx buf\n", __func__);
+	}
+
+	return addr;
+}
+
+/* Without considering data overwriting scenarios */
+static void * get_tx_buf_from_pool(struct tx_rx_buf_pool *nc_buf, size_t len)
+{
+	void *addr;
+
+	if (nc_buf->tx_cust_offset + len <= nc_buf->tx_total_len) {
+		addr = nc_buf->tx_buf_v + nc_buf->tx_cust_offset;
+		nc_buf->tx_cust_offset += len;
+	} else {
+		addr = nc_buf->tx_buf_v;
+		nc_buf->tx_cust_offset = 0;
+		nc_buf->tx_cust_offset += len;
+	}
+
+	return addr;
+}
 
 static phy_interface_t xec_phy_interface_mode(struct device *dev)
 {
@@ -344,8 +438,6 @@ static int __xec_txrx_desc_setup(struct netdata_local *pldat)
 	int i;
 	struct tp_desc_t *ptpdesc;
 	struct rf_desc_t *prfdesc;
-	struct sk_buff *skb;
-	int rc;
 	dma_addr_t dma_addr;
 
 	tbuff = PTR_ALIGN(pldat->dma_buff_base_v, 16);
@@ -374,16 +466,16 @@ static int __xec_txrx_desc_setup(struct netdata_local *pldat)
 
 	/* Map the RX descriptors to the RX buffers in hardware */
 	for (i = 0; i < ENET_RX_DESC; i++) {
-		skb = netdev_alloc_skb(pldat->ndev, ENET_MAXF_SIZE);
-		if (!skb) {
-			rc = -ENOMEM;
-			goto err_exit;
-		}
-		pldat->rf_buff_v[i] = skb;
+		pldat->rf_buff_v[i] = NULL;
 
 		prfdesc = &pldat->rf_desc_v[i];
-		dma_addr = dma_map_single(pldat->ndev->dev.parent,
-				skb->data, ENET_MAXF_SIZE, DMA_TO_DEVICE);
+		//dma_addr = dma_map_single(pldat->ndev->dev.parent,
+		//		skb->data, ENET_MAXF_SIZE, DMA_TO_DEVICE);
+		#if 0
+		dma_addr = __pa(skb->data);
+		#else
+		dma_addr = get_rx_buf_from_pool(&pldat->tx_rx_nc_buf);
+		#endif
 		prfdesc->buf_addr_lo = lower32(dma_addr);
 		prfdesc->buf_addr_hi = upper32(dma_addr);
 
@@ -411,10 +503,6 @@ static int __xec_txrx_desc_setup(struct netdata_local *pldat)
 	writel(val, XEC_DESC_CTRL4(pldat->net_base));
 
 	return 0;
-
-err_exit:
-	__xec_free_rx_skb(pldat);
-	return rc;
 }
 
 static void __xec_eth_init(struct netdata_local *pldat)
@@ -756,7 +844,7 @@ static void __xec_handle_xmit(struct net_device *ndev)
 static int __xec_handle_recv(struct net_device *ndev, int budget)
 {
 	struct netdata_local *pldat = netdev_priv(ndev);
-	struct sk_buff *new_skb, *old_skb;
+	struct sk_buff *new_skb;
 	u32 rxconsidx, len, ethst;
 	int rx_done = 0;
 	u32 rxprodidx;
@@ -783,23 +871,20 @@ static int __xec_handle_recv(struct net_device *ndev, int budget)
 				ndev->stats.rx_dropped++;
 			} else {
 				dma_addr_t dma_addr;
+				void* rx_data_addr;
 
-				old_skb = pldat->rf_buff_v[pldat->rx_idx];
+				rx_data_addr = (void *)(((dma_addr_t)(pldat->rf_desc_v[pldat->rx_idx].buf_addr_hi) << 32) |
+						pldat->rf_desc_v[pldat->rx_idx].buf_addr_lo);
+				rx_data_addr = (dma_addr_t)rx_data_addr - pldat->tx_rx_nc_buf.rx_buf_p + pldat->tx_rx_nc_buf.rx_buf_v;
 				/* Pass to upper layer */
-				old_skb->dev = ndev;
-				skb_put(old_skb, len - ETH_FCS_LEN);
-				dma_unmap_single(pldat->ndev->dev.parent,
-				(((dma_addr_t)(pldat->rf_desc_v[pldat->rx_idx].buf_addr_hi) << 32) |
-				pldat->rf_desc_v[pldat->rx_idx].buf_addr_lo), len, DMA_FROM_DEVICE);
-				old_skb->protocol = eth_type_trans(old_skb, ndev);
-				netif_receive_skb(old_skb);
+				skb_put_data(new_skb, rx_data_addr, len - ETH_FCS_LEN);
+				put_rx_buf_to_pool(&pldat->tx_rx_nc_buf);
+				new_skb->protocol = eth_type_trans(new_skb, ndev);
+				netif_receive_skb(new_skb);
 				ndev->stats.rx_packets++;
 				ndev->stats.rx_bytes += len;
-
-				/* put new skb into descriptor */
-				pldat->rf_buff_v[pldat->rx_idx] = new_skb;
-				dma_addr = dma_map_single(pldat->ndev->dev.parent, new_skb->data,
-						ENET_MAXF_SIZE, DMA_TO_DEVICE);
+				/* put new rx buf into descriptor */
+				dma_addr = get_rx_buf_from_pool(&pldat->tx_rx_nc_buf);
 				pldat->rf_desc_v[pldat->rx_idx].buf_addr_lo = lower32(dma_addr);
 				pldat->rf_desc_v[pldat->rx_idx].buf_addr_hi = upper32(dma_addr);
 			}
@@ -924,11 +1009,17 @@ static netdev_tx_t xec_eth_hard_start_xmit(struct sk_buff *skb,
 	pldat->tp_buff_v[txidx] = skb;
 	/* Setup control for the transfer */
 	txdesc = &pldat->tp_desc_v[txidx];
-	txdesc->cfg0 = skb->len & 0xFFFF;
-	txdesc->cfg1 = 1 << 31;
 
 	/*flush skb buffer, fill skb buffer address to TX DESC */
+	#if 0
 	txbuf_addr =  dma_map_single(ndev->dev.parent, skb->data, skb->len, DMA_TO_DEVICE);
+	#else
+	void *txbuf_addr_va = get_tx_buf_from_pool(&pldat->tx_rx_nc_buf, skb->len);
+	memcpy(txbuf_addr_va, skb->data, skb->len);
+	txbuf_addr = txbuf_addr_va - pldat->tx_rx_nc_buf.tx_buf_v + pldat->tx_rx_nc_buf.tx_buf_p;
+	#endif
+	txdesc->cfg0 = skb->len & 0xFFFF;
+	txdesc->cfg1 = 1 << 31;
 	txdesc->buf_addr_lo = lower32(txbuf_addr);
 	txdesc->buf_addr_hi = upper32(txbuf_addr);
 	wmb();
@@ -1222,6 +1313,9 @@ static int xec_eth_drv_probe(struct platform_device *pdev)
 			pldat->dma_buff_base_v);
 
 	pldat->rx_idx = 0;
+
+	/* allocate non-cachable tx rx buffer for improving xec performance when syscache enabled */
+	init_tx_rx_buf_pool(pldat, np);
 
 	pldat->phy_node = of_parse_phandle(np, "phy-handle", 0);
 
