@@ -481,6 +481,17 @@ config NBPFAXI_DMA
 	help
 	  Support for "Type-AXI" NBPF DMA IPs from Renesas
 
+config NUCLEI_DMA
+	tristate "NUCLEI DMA support"
+	depends on RISCV || COMPILE_TEST
+	depends on OF
+	select DMA_ENGINE
+	select DMA_VIRTUAL_CHANNELS
+	help
+	  Enable support for the DMA controller on the NUCLEI Platfrom.
+	  This DMA controller can transfer data from memory to memory,
+	  memory to peripheral and peripheral to memory.
+
 config OWL_DMA
 	tristate "Actions Semi Owl SoCs DMA support"
 	depends on ARCH_ACTIONS
