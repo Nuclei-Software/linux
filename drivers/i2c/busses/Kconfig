@@ -885,6 +885,15 @@ config I2C_NPCM
 	  controllers.
 	  Driver can also support slave mode (select I2C_SLAVE).
 
+config I2C_NUCLEI
+	tristate "Nuclei I2C controller"
+	default n
+	help
+	  This driver supports the new I2C interface of Nuclei Platform
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called i2c-nuclei.
+
 config I2C_OCORES
 	tristate "OpenCores I2C Controller"
 	help
