@@ -1263,14 +1263,12 @@ static int nuclei_dmac_probe(struct platform_device *pdev)
 
 	ret = of_property_read_u32(np, "dma-memcpy", &nr_mem_channels);
 	if (ret) {
-		dev_err(dev, "can't get dma-requests\n");
-		return ret;
+		dev_warn(dev, "no dma mem2mem channels\n");
 	}
 
 	ret = of_property_read_u32(np, "dma-channels", &nr_channels);
 	if (ret) {
-		dev_err(dev, "can't get dma-channels\n");
-		return ret;
+		dev_warn(dev, "no dma pa2mem channels\n");
 	}
 
 	ret = of_property_read_u32(np, "dma-requests", &nr_requests);
@@ -1279,8 +1277,8 @@ static int nuclei_dmac_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	dev_info(dev, "dma-channels %d, dma-requests %d\n",
-		 nr_channels, nr_requests);
+	dev_info(dev, "dma mem channels %d, pa channels %d, dma requests %d\n",
+		nr_mem_channels, nr_channels, nr_requests);
 
 	ddev = &xdev->ddev_memcpy;
 	ddev->dev = dev;
@@ -1381,17 +1379,19 @@ static int nuclei_dmac_probe(struct platform_device *pdev)
 		dev_err(dev, "clk_prep_enable error: %d\n", ret);
 		return ret;
 	}
-
-	ret = dma_async_device_register(&xdev->ddev_memcpy);
-	if (ret) {
-		dev_err(dev, "Failed to register DMA memory device\n");
-		goto err_register_memcpy;
+	if (xdev->nr_pchans_memcpy) {
+		ret = dma_async_device_register(&xdev->ddev_memcpy);
+		if (ret) {
+			dev_err(dev, "Failed to register DMA memory device\n");
+			goto err_register_memcpy;
+		}
 	}
-
-	ret = dma_async_device_register(&xdev->ddev_slave);
-	if (ret) {
-		dev_err(dev, "Failed to register DMA slave device\n");
-		goto err_register_slave;
+	if (xdev->nr_pchans_slave) {
+		ret = dma_async_device_register(&xdev->ddev_slave);
+		if (ret) {
+			dev_err(dev, "Failed to register DMA slave device\n");
+			goto err_register_slave;
+		}
 	}
 
 	ret = of_dma_controller_register(dev->of_node,
