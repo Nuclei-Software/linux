@@ -723,6 +723,8 @@ struct nuclei_dmac_pchan {
 	struct nuclei_dmac_vchan *vchan;
 	void __iomem *reg_ch_cfg_base;
 	void __iomem *reg_ch_irq_base;
+	struct work_struct irq_work;
+	u32 pending_stat;
 	/* channel phy id */
 	int id;
 };
@@ -964,7 +966,31 @@ static void nuclei_dmac_start(struct nuclei_dmac_vchan *ndvch)
 		ndvch->pchan = NULL;
 }
 
-static void nuclei_dmac_chan_irq(struct nuclei_dmac_pchan *pchan)
+static void nuclei_dmac_chan_work(struct work_struct *work)
+{
+	struct nuclei_dmac_pchan *pchan = container_of(work, struct nuclei_dmac_pchan, irq_work);
+	struct nuclei_dmac_vchan *vch = pchan->vchan;
+	u32 stat = pchan->pending_stat;
+
+	if (!vch || !vch->xd)
+		return;
+
+	spin_lock(&vch->vc.lock);
+
+	if (stat & DMAC_IRQ_FTI_MASK) {
+		vch->xd->cur_node++;
+		if (vch->xd->cur_node >= vch->xd->nr_node) {
+			vchan_cookie_complete(&vch->xd->vd);
+			nuclei_dmac_start(vch);
+		} else {
+			nuclei_dmac_chan_start(vch, vch->xd);
+		}
+	}
+
+	spin_unlock(&vch->vc.lock);
+}
+
+static int nuclei_dmac_chan_irq(struct nuclei_dmac_pchan *pchan)
 {
 	u32 stat;
 	int ret;
@@ -972,10 +998,8 @@ static void nuclei_dmac_chan_irq(struct nuclei_dmac_pchan *pchan)
 
 	vch = pchan->vchan;
 	/* phy channel have no dma transfer*/
-	if (vch==NULL)
-		return;
-
-	spin_lock(&vch->vc.lock);
+	if (!vch || !vch->xd)
+		return IRQ_NONE;
 
 	stat = readl(pchan->reg_ch_irq_base + DMAC_CH_IRQ_STAT_OFF);
 	if (stat & DMAC_IRQ_ETI_MASK) {
@@ -988,20 +1012,16 @@ static void nuclei_dmac_chan_irq(struct nuclei_dmac_pchan *pchan)
 				"DMA transfer error\n");
 		/* write bits to clear */
 		writel(stat, pchan->reg_ch_irq_base + DMAC_CH_IRQ_CLR_OFF);
-
-	} else if ((stat & DMAC_IRQ_FTI_MASK) && vch->xd) {
+	} else if ((stat & DMAC_IRQ_FTI_MASK)) {
 		vch->xd->cur_node++;
 		/* write bits to clear */
 		writel(stat, pchan->reg_ch_irq_base + DMAC_CH_IRQ_CLR_OFF);
-		if (vch->xd->cur_node >= vch->xd->nr_node) {
-			vchan_cookie_complete(&vch->xd->vd);
-			nuclei_dmac_start(vch);
-		} else {
-			nuclei_dmac_chan_start(vch, vch->xd);
-		}
+
+		pchan->pending_stat = stat;
+		schedule_work(&pchan->irq_work);
 	}
 
-	spin_unlock(&vch->vc.lock);
+	return IRQ_HANDLED;
 }
 
 static irqreturn_t nuclei_dmac_irq_handler(int irq, void *dev_id)
@@ -1159,9 +1179,8 @@ static int nuclei_dmac_terminate_all(struct dma_chan *chan)
 	}
 
 	vchan_get_all_descriptors(vc, &head);
-
 	spin_unlock_irqrestore(&vc->lock, flags);
-
+	flush_work(&ndvch->pchan->irq_work);
 	vchan_dma_desc_free_list(vc, &head);
 
 	return ret;
@@ -1209,6 +1228,7 @@ static void nuclei_dmac_pchan_init(struct nuclei_dmac_device *xdev,
 		/* pa2mem channel id start from 0 */
 		ndpch->id = ch - xdev->nr_pchans_memcpy;
 	}
+	INIT_WORK(&ndpch->irq_work, nuclei_dmac_chan_work);
 }
 
 static struct dma_chan *of_dma_nuclei_xlate(struct of_phandle_args *dma_spec,
