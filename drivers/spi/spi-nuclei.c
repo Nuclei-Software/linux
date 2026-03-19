@@ -15,6 +15,7 @@
 #include <linux/spi/spi.h>
 #include <linux/io.h>
 #include <linux/log2.h>
+#include <linux/dmaengine.h>
 
 #define NUCLEI_SPI_DEBUG(arg...)
 
@@ -37,6 +38,8 @@
 #define NUCLEI_SPI_REG_VERSION           0x1C /* SPI version */
 #define NUCLEI_SPI_REG_DELAY0            0x28 /* Delay control 0 */
 #define NUCLEI_SPI_REG_DELAY1            0x2c /* Delay control 1 */
+#define NUCLEI_SPI_REG_TXSIZE            0x34 /* TX SPIdma size */
+#define NUCLEI_SPI_REG_RXSIZE            0x38 /* RX SPIdma size */
 #define NUCLEI_SPI_REG_FMT               0x40 /* Frame format */
 #define NUCLEI_SPI_REG_TXDATA            0x48 /* Tx FIFO data */
 #define NUCLEI_SPI_REG_RXDATA            0x4c /* Rx FIFO data */
@@ -62,6 +65,13 @@
 #define NUCLEI_SPI_SCKMODE_POL           BIT(1)
 #define NUCLEI_SPI_SCKMODE_MODE_MASK     (NUCLEI_SPI_SCKMODE_PHA | \
                                           NUCLEI_SPI_SCKMODE_POL)
+
+/* csid bits */
+#define NUCLEI_SPI_CSID_DISABLE          0U
+#define NUCLEI_SPI_CSID_CS0              1U
+#define NUCLEI_SPI_CSID_CS1              2U
+#define NUCLEI_SPI_CSID_CS2              3U
+#define NUCLEI_SPI_CSID_CS3              4U
 
 /* csmode bits */
 #define NUCLEI_SPI_CSMODE_MODE_AUTO      0U
@@ -111,15 +121,21 @@
 
 #define NUCLEI_SPI_FEATURE_32B_DATA      BIT(0)
 
+#define NUCLEI_SPI_CR_DMA_EN             BIT(1)
+#define NUCLEI_SPI_CR_TXDMA_EN           BIT(8)
+#define NUCLEI_SPI_CR_RXDMA_EN           BIT(9)
+
 
 struct nuclei_spi {
 	void __iomem      *regs;        /* virt. address of control registers */
-    u32     version;
-    u32     feature;
+	u32     version;
+	u32     feature;
 	struct clk        *clk;         /* bus clock */
 	unsigned int      fifo_depth;   /* fifo depth in words */
 	u32               cs_inactive;  /* level of the CS pins when inactive */
 	struct completion done;         /* wake-up from interrupt */
+	u32 cur_usedma;
+	dma_addr_t phys_addr;
 };
 
 static void nuclei_spi_write(struct nuclei_spi *spi, int offset, u32 value)
@@ -137,14 +153,12 @@ static void nuclei_spi_init(struct nuclei_spi *spi)
 	/* Watermark interrupts are disabled by default */
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_IE, 0);
 
-
 	if ((spi->feature & NUCLEI_SPI_FEATURE_32B_DATA) == NUCLEI_SPI_FEATURE_32B_DATA) {
 		/* Set spi cr reg: master mode, uDMA disabled, ddr disabled, cs output enable, hdsmode disabled */
-		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, 0x11);
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, BIT(0)|BIT(3)|BIT(4)|BIT(13));
 		/* Set FORCE register to 0x1, force enable, write protect disable */
 		nuclei_spi_write(spi, NUCLEI_SPI_REG_FORCE, 0x1);
 	}
-
 
 	/* Default watermark FIFO threshold values */
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_TXMARK, 1);
@@ -155,7 +169,7 @@ static void nuclei_spi_init(struct nuclei_spi *spi)
 			 NUCLEI_SPI_DELAY0_CSSCK(1) |
 			 NUCLEI_SPI_DELAY0_SCKCS(1));
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_DELAY1,
-			 NUCLEI_SPI_DELAY1_INTERCS(1) |
+			 NUCLEI_SPI_DELAY1_INTERCS(3) |
 			 NUCLEI_SPI_DELAY1_INTERXFR(0));
 
 	/* Exit specialized memory-mapped SPI flash mode */
@@ -192,6 +206,10 @@ nuclei_spi_prepare_message(struct spi_master *master, struct spi_message *msg)
 	return 0;
 }
 
+/*
+ * is_high == 0, cs select spi device
+ * is_high == 1, cs not select spi device
+ */
 static void nuclei_spi_set_cs(struct spi_device *device, bool is_high)
 {
 	struct nuclei_spi *spi = spi_master_get_devdata(device->master);
@@ -200,9 +218,9 @@ static void nuclei_spi_set_cs(struct spi_device *device, bool is_high)
 	if (device->mode & SPI_CS_HIGH)
 		is_high = !is_high;
 
-	nuclei_spi_write(spi, NUCLEI_SPI_REG_CSMODE, is_high ?
-			 NUCLEI_SPI_CSMODE_MODE_AUTO :
-			 NUCLEI_SPI_CSMODE_MODE_HOLD);
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CSID, is_high ?
+			 NUCLEI_SPI_CSID_DISABLE :
+			 (device->chip_select + 1));
 }
 
 static int
@@ -252,13 +270,13 @@ static void nuclei_spi_prope_feature(struct nuclei_spi *spi)
 {
 	u32 data;
 
-    data = nuclei_spi_read(spi, NUCLEI_SPI_REG_VERSION);
-    spi->version = data;
-    if (data >= NUCLEI_SPI_VERSION_110) {
-        spi->feature |= NUCLEI_SPI_FEATURE_32B_DATA;
-    } else {
-        spi->feature &= ~NUCLEI_SPI_FEATURE_32B_DATA;
-    }
+	data = nuclei_spi_read(spi, NUCLEI_SPI_REG_VERSION);
+	spi->version = data;
+	if (data >= NUCLEI_SPI_VERSION_110) {
+		spi->feature |= NUCLEI_SPI_FEATURE_32B_DATA;
+	} else {
+		spi->feature &= ~NUCLEI_SPI_FEATURE_32B_DATA;
+	}
 }
 
 static irqreturn_t nuclei_spi_irq(int irq, void *dev_id)
@@ -333,8 +351,185 @@ static void nuclei_spi_rx(struct nuclei_spi *spi, u8 *rx_ptr)
 	}
 }
 
+static void nuclei_spi_dma_rxcb(void *data)
+{
+	struct spi_controller *ctlr = data;
+	struct nuclei_spi *spi = spi_controller_get_devdata(ctlr);
+	u32 cr;
+
+	/* Disable SPI DMA */
+	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+	cr &= ~NUCLEI_SPI_CR_DMA_EN;
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+
+	/* Disable Rx DMA request */
+	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+	cr &= ~NUCLEI_SPI_CR_RXDMA_EN;
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+
+	NUCLEI_SPI_DEBUG("rxcb\n");
+	spi_finalize_current_transfer(ctlr);
+}
+
+static void nuclei_spi_dma_txcb(void *data)
+{
+	struct spi_controller *ctlr = data;
+	struct nuclei_spi *spi = spi_controller_get_devdata(ctlr);
+	int status;
+	u32 cr;
+
+	/* Wait until the FIFO data completely. */
+	do {
+		status = nuclei_spi_read(spi, NUCLEI_SPI_REG_STATUS);
+	} while((status & BIT(13)) == 0);
+	status |= BIT(13);
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_STATUS, status);
+
+	/* Disable SPI DMA */
+	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+	cr &= ~NUCLEI_SPI_CR_DMA_EN;
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+
+	/* Disable Tx DMA request */
+	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+	cr &= ~NUCLEI_SPI_CR_TXDMA_EN;
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+
+	NUCLEI_SPI_DEBUG("txcb\n");
+
+	/* when rx dma enable, let rxcb to wake up */
+	if (!(cr & NUCLEI_SPI_CR_RXDMA_EN))
+		spi_finalize_current_transfer(ctlr);
+}
+
+static bool nuclei_spi_can_dma(struct spi_controller *ctlr,
+				 struct spi_device *spi_dev,
+				 struct spi_transfer *xfer)
+{
+	struct nuclei_spi *spi = spi_controller_get_devdata(ctlr);
+	unsigned int bytes_per_word = 1;
+
+	if (bytes_per_word <= 8)
+		bytes_per_word = 1;
+	else if (bytes_per_word <= 16)
+		bytes_per_word = 2;
+	else if (bytes_per_word <= 32)
+		bytes_per_word = 4;
+
+	return xfer->len / bytes_per_word > spi->fifo_depth;
+}
+
 static int
-nuclei_spi_transfer_one(struct spi_master *master, struct spi_device *device,
+nuclei_spi_transfer_one_dma(struct spi_master *master, struct spi_device *device,
+			struct spi_transfer *t)
+{
+	struct nuclei_spi *spi = spi_master_get_devdata(master);
+	struct dma_async_tx_descriptor *tx_dma_desc, *rx_dma_desc;
+	u32 cr, width;
+
+	nuclei_spi_prep_transfer(spi, device, t);
+
+	width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+	if (t-> bits_per_word <= 8)
+		width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+	else if (t->bits_per_word <= 16)
+		width = DMA_SLAVE_BUSWIDTH_2_BYTES;
+	else if (t->bits_per_word <= 32)
+		width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+	else {
+		dev_err(NULL, "%s width %d is not supported!\n", __func__, t-> bits_per_word);
+	}
+
+	tx_dma_desc = NULL;
+	if (t->tx_buf && master->dma_tx) {
+		struct dma_slave_config tx_dma_conf = {
+			.direction = DMA_MEM_TO_DEV,
+			.dst_addr = spi->phys_addr + NUCLEI_SPI_REG_TXDATA,
+			.dst_addr_width = width,
+			.dst_maxburst = 1,
+		};
+		dmaengine_slave_config(master->dma_tx, &tx_dma_conf);
+
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_TXSIZE, t->len);
+		tx_dma_desc = dmaengine_prep_slave_sg(
+					master->dma_tx, t->tx_sg.sgl,
+					t->tx_sg.nents,
+					tx_dma_conf.direction,
+					DMA_PREP_INTERRUPT);
+	}
+
+	rx_dma_desc = NULL;
+	if (t->rx_buf && master->dma_rx) {
+		struct dma_slave_config rx_dma_conf = {
+			.direction = DMA_DEV_TO_MEM,
+			.src_addr = spi->phys_addr + NUCLEI_SPI_REG_RXDATA,
+			.src_addr_width = width,
+			.src_maxburst = 1,
+		};
+
+		dmaengine_slave_config(master->dma_rx, &rx_dma_conf);
+
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_RXSIZE, t->len);
+
+		/* Enable Rx DMA request */
+		cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+		cr |= NUCLEI_SPI_CR_RXDMA_EN;
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+
+		rx_dma_desc = dmaengine_prep_slave_sg(
+					master->dma_rx, t->rx_sg.sgl,
+					t->rx_sg.nents,
+					rx_dma_conf.direction,
+					DMA_PREP_INTERRUPT);
+	}
+
+	if (tx_dma_desc) {
+		tx_dma_desc->callback = nuclei_spi_dma_txcb;
+		tx_dma_desc->callback_param = master;
+
+		if (dma_submit_error(dmaengine_submit(tx_dma_desc))) {
+			goto dma_submit_error;
+		}
+		/* Enable Tx DMA channel */
+		dma_async_issue_pending(master->dma_tx);
+
+		/* Enable Tx DMA request */
+		cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+		cr |= NUCLEI_SPI_CR_TXDMA_EN;
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+	}
+
+	if (rx_dma_desc) {
+		rx_dma_desc->callback = nuclei_spi_dma_rxcb;
+		rx_dma_desc->callback_param = master;
+
+		if (dma_submit_error(dmaengine_submit(rx_dma_desc))) {
+			goto dma_desc_error;
+		}
+		/* Enable Rx DMA channel */
+		dma_async_issue_pending(master->dma_rx);
+	}
+
+	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+	cr |= NUCLEI_SPI_CR_DMA_EN;
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+
+	return 1;
+
+dma_desc_error:
+	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+	cr &= ~(NUCLEI_SPI_CR_RXDMA_EN | NUCLEI_SPI_CR_TXDMA_EN);
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+
+	if (master->dma_tx) {
+		dmaengine_terminate_sync(master->dma_tx);
+	}
+dma_submit_error:
+	return -EINVAL;
+}
+
+static int
+nuclei_spi_transfer_one_irq(struct spi_master *master, struct spi_device *device,
 			struct spi_transfer *t)
 {
 	struct nuclei_spi *spi = spi_master_get_devdata(master);
@@ -344,7 +539,7 @@ nuclei_spi_transfer_one(struct spi_master *master, struct spi_device *device,
 	u8 *rx_ptr2;
 	unsigned int remaining_words = t->len;
 
-	NUCLEI_SPI_DEBUG("spi @0x%x nuclei_spi_transfer_one %d, %d\n", spi->regs, remaining_words, spi->fifo_depth);
+	NUCLEI_SPI_DEBUG("spi @0x%x nuclei_spi_transfer_one_irq %d, %d\n", spi->regs, remaining_words, spi->fifo_depth);
 	NUCLEI_SPI_DEBUG("tx ");
 	int j;
 	for (j = 0; j < remaining_words; j++) {
@@ -381,9 +576,24 @@ nuclei_spi_transfer_one(struct spi_master *master, struct spi_device *device,
 
 		remaining_words -= n_words;
 	}
-	NUCLEI_SPI_DEBUG("spi @0x%x nuclei_spi_transfer_one end\n", spi->regs);
+	NUCLEI_SPI_DEBUG("spi @0x%x nuclei_spi_transfer_one_irq end\n", spi->regs);
 
 	return 0;
+}
+
+static int
+nuclei_spi_transfer_one(struct spi_master *master, struct spi_device *device,
+			struct spi_transfer *t)
+{
+	struct nuclei_spi *spi = spi_master_get_devdata(master);
+	spi->cur_usedma = (master->can_dma &&
+				master->can_dma(master, device, t) &&
+				master->cur_msg_mapped);
+
+	if (spi->cur_usedma)
+		return nuclei_spi_transfer_one_dma(master, device, t);
+	else
+		return nuclei_spi_transfer_one_irq(master, device, t);
 }
 
 static int nuclei_spi_probe(struct platform_device *pdev)
@@ -392,6 +602,7 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	int ret, irq, num_cs;
 	u32 cs_bits, max_bits_per_word;
 	struct spi_master *master;
+	struct resource *res;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(struct nuclei_spi));
 	if (!master) {
@@ -403,11 +614,12 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	init_completion(&spi->done);
 	platform_set_drvdata(pdev, master);
 
-	spi->regs = devm_platform_ioremap_resource(pdev, 0);
+	spi->regs = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(spi->regs)) {
 		ret = PTR_ERR(spi->regs);
 		goto put_master;
 	}
+	spi->phys_addr = (dma_addr_t)res->start;
 
 	spi->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(spi->clk)) {
@@ -463,7 +675,8 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 		ret = -EINVAL;
 		goto disable_clk;
 	}
-
+	/* set switch cs by manual */
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CSMODE, NUCLEI_SPI_CSMODE_MODE_HOLD);
 	/* Define our master */
 	master->dev.of_node = pdev->dev.of_node;
 	master->bus_num = pdev->id;
@@ -489,7 +702,7 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	nuclei_spi_init(spi);
 
 	/* Register for SPI Interrupt */
-	ret = devm_request_irq(&pdev->dev, irq, nuclei_spi_irq, 0,
+	ret = devm_request_irq(&pdev->dev, irq, nuclei_spi_irq, IRQF_NO_THREAD,
 			       dev_name(&pdev->dev), spi);
 	if (ret) {
 		dev_err(&pdev->dev, "Unable to bind to interrupt\n");
@@ -498,6 +711,22 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 
 	dev_info(&pdev->dev, "mapped; irq=%d, cs=%d\n",
 		 irq, master->num_chipselect);
+
+	master->dma_tx = dma_request_chan(&pdev->dev, "tx");
+	if (IS_ERR(master->dma_tx)) {
+		dev_dbg(&pdev->dev, "Failed to request TX DMA channel\n");
+		master->dma_tx = NULL;
+	}
+
+	master->dma_rx = dma_request_chan(&pdev->dev, "rx");
+	if (IS_ERR(master->dma_rx)) {
+		dev_dbg(&pdev->dev, "Failed to request RX DMA channel\n");
+		master->dma_rx = NULL;
+	}
+
+	if (master->dma_tx && master->dma_rx) {
+		master->can_dma = nuclei_spi_can_dma;
+	}
 
 	ret = devm_spi_register_master(&pdev->dev, master);
 	if (ret < 0) {
