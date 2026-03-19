@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2026, Nucleisys Co., Ltd.
+ * based on uniphier-xdmac.c
  */
 
 #include <linux/bitops.h>
@@ -869,7 +870,8 @@ static void nuclei_dmac_chan_start(struct nuclei_dmac_vchan *ndvch,
 		tnum = xd->nodes[xd->cur_node].trans_num;
 		tsize = xd->nodes[xd->cur_node].trans_size;
 		val = 0;
-		//val |= (ffs(dst_width)-1) << DMAC_MEM_DST_WIDTH_SHIFT;
+
+		val |= (ffs(dst_width)-1) << DMAC_MEM_DST_WIDTH_SHIFT;
 		val |= (ffs(src_width)-1) << DMAC_MEM_SRC_WIDTH_SHIFT;
 		val |= src_mode << DMAC_MEM_SRC_ADDR_MODE_SHIFT;
 		val |= dst_mode << DMAC_MEM_DST_ADDR_MODE_SHIFT;
@@ -914,7 +916,7 @@ static void nuclei_dmac_chan_start(struct nuclei_dmac_vchan *ndvch,
 			ndvch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
 		/* start DMA transfer */
 		val = 0;
-		val |= ((ffs(dst_width)-1) & 0x7) << DMAC_PA_DATA_WIDTH_SHIFT;
+		val |= ((dst_width-1) & 0x7) << DMAC_PA_DATA_WIDTH_SHIFT;
 		val |= (src_mode & 0x1) << DMAC_PA_SRC_ADDR_MODE_SHIFT;
 		val |= (dst_mode & 0x1) << DMAC_PA_DST_ADDR_MODE_SHIFT;
 		val |= ((dma_chan_info_tab[ndvch->reqid].periph_sel) & 0xFF) << DMAC_PA_TRANS_PER_SEL_SHIFT;
@@ -962,8 +964,6 @@ static void nuclei_dmac_start(struct nuclei_dmac_vchan *ndvch)
 
 	/* set desc to chan regardless of xd is null */
 	ndvch->xd = xd;
-	if (xd == NULL)
-		ndvch->pchan = NULL;
 }
 
 static void nuclei_dmac_chan_work(struct work_struct *work)
@@ -971,11 +971,12 @@ static void nuclei_dmac_chan_work(struct work_struct *work)
 	struct nuclei_dmac_pchan *pchan = container_of(work, struct nuclei_dmac_pchan, irq_work);
 	struct nuclei_dmac_vchan *vch = pchan->vchan;
 	u32 stat = pchan->pending_stat;
+	unsigned long flags;
 
 	if (!vch || !vch->xd)
 		return;
 
-	spin_lock(&vch->vc.lock);
+	spin_lock_irqsave(&vch->vc.lock, flags);
 
 	if (stat & DMAC_IRQ_FTI_MASK) {
 		vch->xd->cur_node++;
@@ -987,7 +988,7 @@ static void nuclei_dmac_chan_work(struct work_struct *work)
 		}
 	}
 
-	spin_unlock(&vch->vc.lock);
+	spin_unlock_irqrestore(&vch->vc.lock, flags);
 }
 
 static int nuclei_dmac_chan_irq(struct nuclei_dmac_pchan *pchan)
@@ -1013,7 +1014,6 @@ static int nuclei_dmac_chan_irq(struct nuclei_dmac_pchan *pchan)
 		/* write bits to clear */
 		writel(stat, pchan->reg_ch_irq_base + DMAC_CH_IRQ_CLR_OFF);
 	} else if ((stat & DMAC_IRQ_FTI_MASK)) {
-		vch->xd->cur_node++;
 		/* write bits to clear */
 		writel(stat, pchan->reg_ch_irq_base + DMAC_CH_IRQ_CLR_OFF);
 
@@ -1180,7 +1180,8 @@ static int nuclei_dmac_terminate_all(struct dma_chan *chan)
 
 	vchan_get_all_descriptors(vc, &head);
 	spin_unlock_irqrestore(&vc->lock, flags);
-	flush_work(&ndvch->pchan->irq_work);
+	if (ndvch->pchan)
+		flush_work(&ndvch->pchan->irq_work);
 	vchan_dma_desc_free_list(vc, &head);
 
 	return ret;
@@ -1276,7 +1277,7 @@ static int nuclei_dmac_probe(struct platform_device *pdev)
 
 	ret = of_property_read_u32(np, "dma-ctrl-id", &xdev->dmac_ctrl_id);
 	if (ret) {
-		dev_warn(dev, "can't get dma ctrl id, use udma0 as default\n");
+		dev_dbg(dev, "can't get dma ctrl id, use udma0 as default\n");
 		/* default value is 0 */
 		xdev->dmac_ctrl_id = 0;
 	}
@@ -1383,7 +1384,7 @@ static int nuclei_dmac_probe(struct platform_device *pdev)
 		return irq;
 
 	ret = devm_request_irq(dev, irq, nuclei_dmac_irq_handler,
-			       IRQF_ONESHOT, "dmac", xdev);
+			       IRQF_NO_THREAD, "dmac", xdev);
 	if (ret) {
 		dev_err(dev, "Failed to request IRQ\n");
 		return ret;
