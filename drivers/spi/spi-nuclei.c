@@ -533,7 +533,7 @@ MODULE_DEVICE_TABLE(of, nuclei_spi_of_match);
 
 static struct platform_driver nuclei_spi_driver = {
 	.probe = nuclei_spi_probe,
-	.remove_new = nuclei_spi_remove,
+	.remove = nuclei_spi_remove,
 	.driver = {
 		.name = NUCLEI_SPI_DRIVER_NAME,
 		.of_match_table = nuclei_spi_of_match,
