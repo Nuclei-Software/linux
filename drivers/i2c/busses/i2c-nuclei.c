@@ -268,34 +268,6 @@ static void i2c_nuclei_reset(struct nuclei_i2c *i2c)
 	i2c_nuclei_init(i2c);
 }
 
-static int i2c_nuclei_clear_arb(struct nuclei_i2c *i2c)
-{
-	unsigned long timeout = jiffies + msecs_to_jiffies(1000);
-
-	/*
-	 * If the transfer needs to abort for some reason, we'll try to
-	 * force a stop condition to clear any pending bus conditions
-	 */
-	u32 status;
-
-	status = readl(i2c->base + I2C_SETUP_OFFSET);
-	status |= I2C_SETUP_STOP;
-	writel(status, i2c->base + I2C_SETUP_OFFSET);
-
-	/* Wait for status change */
-	while (readl(i2c->base + I2C_STATUS_OFFSET) & I2C_STATUS_BUSY) {
-		if (time_after(jiffies, timeout)) {
-			/* Bus was not idle, try to reset adapter */
-			i2c_nuclei_reset(i2c);
-			return -EBUSY;
-		}
-
-		cpu_relax();
-	}
-
-	return 0;
-}
-
 static int i2c_nuclei_wait_status(struct nuclei_i2c *i2c, u32 status_bit, u32 expect_val)
 {
 	unsigned long x, val;
@@ -710,11 +682,13 @@ fallback_pio:
 			if (i == (i2c->msg->len -1)) {
 				val = readl(i2c->base + I2C_SETUP_OFFSET);
 				val |= I2C_SETUP_ACK;
-				//val |= I2C_SETUP_STOP;
+				val |= I2C_SETUP_STOP;
 				/* wait for controller exit from ack stage*/
 				while((readl(i2c->base + I2C_STATUS_OFFSET) &
 					I2C_STATUS_MASTER_STATE) == I2C_STATUS_MASTER_STATE_ACK);
 				writel(val, i2c->base + I2C_SETUP_OFFSET);
+				/* wait stop finish */
+				while(readl(i2c->base + I2C_SETUP_OFFSET) & I2C_SETUP_STOP){};
 			}
 			ret = i2c_nuclei_lowlevel_read(i2c, &i2c->msg->buf[i]);
 			if (ret) {
@@ -734,7 +708,7 @@ fallback_pio:
 	}
 
 	/* if last msg, pio stop transfer */
-	if (i2c->is_last /*&& !(i2c->msg->flags & I2C_M_RD)*/) {
+	if (i2c->is_last && !(i2c->msg->flags & I2C_M_RD)) {
 		dev_dbg(i2c->dev, "i2c pio stop\n");
 		val = readl(i2c->base + I2C_SETUP_OFFSET);
 		val |= I2C_SETUP_STOP;
@@ -755,9 +729,11 @@ static int i2c_nuclei_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	/* Check for bus idle condition */
 	stat = readl(i2c->base + I2C_STATUS_OFFSET);
 	if (stat & I2C_STATUS_BUSY) {
-		/* Something is holding the bus, try to clear it */
-		i2c_nuclei_clear_arb(i2c);
-		return 0;
+		/* Something is holding the bus, wait some time to check */
+		dev_warn(i2c->dev,"xfer busy,%p-%d\n", msgs, msg_num);
+		ret = i2c_nuclei_wait_status(i2c, I2C_STATUS_BUSY, 0);
+		if (ret)
+			return ret;
 	}
 
 	/* Process a single message at a time */
