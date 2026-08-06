@@ -62,6 +62,7 @@ obj-y				+= mediatek/
 obj-$(CONFIG_PINCTRL_MESON)	+= meson/
 obj-y				+= mvebu/
 obj-y				+= nomadik/
+obj-y				+= nuclei/
 obj-y				+= nuvoton/
 obj-y				+= nxp/
 obj-$(CONFIG_PINCTRL_PXA)	+= pxa/

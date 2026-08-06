@@ -1,0 +1,292 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Nuclei T0 iomux controller
+ *
+ * Copyright (C) 2026 Nucleisys, Inc.
+ *
+ */
+
+#include <linux/err.h>
+#include <linux/init.h>
+#include <linux/io.h>
+#include <linux/mod_devicetable.h>
+#include <linux/platform_device.h>
+#include <linux/pinctrl/pinctrl.h>
+
+#include "pinctrl-nuclei.h"
+
+/* Pad names for the pinmux subsystem */
+static const struct pinctrl_pin_desc nuclei_t0_pinctrl_pads[] = {
+    PINCTRL_PIN(0, "NUCLEI_PADIO0"),
+    PINCTRL_PIN(1, "NUCLEI_PADIO1"),
+    PINCTRL_PIN(2, "NUCLEI_PADIO2"),
+    PINCTRL_PIN(3, "NUCLEI_PADIO3"),
+    PINCTRL_PIN(4, "NUCLEI_PADIO4"),
+    PINCTRL_PIN(5, "NUCLEI_PADIO5"),
+    PINCTRL_PIN(6, "NUCLEI_PADIO6"),
+    PINCTRL_PIN(7, "NUCLEI_PADIO7"),
+    PINCTRL_PIN(8, "NUCLEI_PADIO8"),
+    PINCTRL_PIN(9, "NUCLEI_PADIO9"),
+    PINCTRL_PIN(10, "NUCLEI_PADIO10"),
+    PINCTRL_PIN(11, "NUCLEI_PADIO11"),
+    PINCTRL_PIN(12, "NUCLEI_PADIO12"),
+    PINCTRL_PIN(13, "NUCLEI_PADIO13"),
+    PINCTRL_PIN(14, "NUCLEI_PADIO14"),
+    PINCTRL_PIN(15, "NUCLEI_PADIO15"),
+    PINCTRL_PIN(16, "NUCLEI_PADIO16"),
+    PINCTRL_PIN(17, "NUCLEI_PADIO17"),
+    PINCTRL_PIN(18, "NUCLEI_PADIO18"),
+    PINCTRL_PIN(19, "NUCLEI_PADIO19"),
+    PINCTRL_PIN(20, "NUCLEI_PADIO20"),
+    PINCTRL_PIN(21, "NUCLEI_PADIO21"),
+    PINCTRL_PIN(22, "NUCLEI_PADIO22"),
+    PINCTRL_PIN(23, "NUCLEI_PADIO23"),
+    PINCTRL_PIN(24, "NUCLEI_PADIO24"),
+    PINCTRL_PIN(25, "NUCLEI_PADIO25"),
+    PINCTRL_PIN(26, "NUCLEI_PADIO26"),
+    PINCTRL_PIN(27, "NUCLEI_PADIO27"),
+    PINCTRL_PIN(28, "NUCLEI_PADIO28"),
+    PINCTRL_PIN(29, "NUCLEI_PADIO29"),
+    PINCTRL_PIN(30, "NUCLEI_PADIO30"),
+    PINCTRL_PIN(31, "NUCLEI_PADIO31"),
+    PINCTRL_PIN(32, "NUCLEI_PADIO32"),
+    PINCTRL_PIN(33, "NUCLEI_PADIO33"),
+    PINCTRL_PIN(34, "NUCLEI_PADIO34"),
+    PINCTRL_PIN(35, "NUCLEI_PADIO35"),
+    PINCTRL_PIN(36, "NUCLEI_PADIO36"),
+    PINCTRL_PIN(37, "NUCLEI_PADIO37"),
+    PINCTRL_PIN(38, "NUCLEI_PADIO38"),
+    PINCTRL_PIN(39, "NUCLEI_PADIO39"),
+    PINCTRL_PIN(40, "NUCLEI_PADIO40"),
+    PINCTRL_PIN(41, "NUCLEI_PADIO41"),
+    PINCTRL_PIN(42, "NUCLEI_PADIO42"),
+    PINCTRL_PIN(43, "NUCLEI_PADIO43"),
+    PINCTRL_PIN(44, "NUCLEI_PADIO44"),
+    PINCTRL_PIN(45, "NUCLEI_PADIO45"),
+    PINCTRL_PIN(46, "NUCLEI_PADIO46"),
+    PINCTRL_PIN(47, "NUCLEI_PADIO47"),
+    PINCTRL_PIN(48, "NUCLEI_PADIO48"),
+    PINCTRL_PIN(49, "NUCLEI_PADIO49"),
+    PINCTRL_PIN(50, "NUCLEI_PADIO50"),
+    PINCTRL_PIN(51, "NUCLEI_PADIO51"),
+    PINCTRL_PIN(52, "NUCLEI_PADIO52"),
+    PINCTRL_PIN(53, "NUCLEI_PADIO53"),
+    PINCTRL_PIN(54, "NUCLEI_PADIO54"),
+    PINCTRL_PIN(55, "NUCLEI_PADIO55"),
+    PINCTRL_PIN(56, "NUCLEI_PADIO56"),
+    PINCTRL_PIN(57, "NUCLEI_PADIO57"),
+    PINCTRL_PIN(58, "NUCLEI_PADIO58"),
+    PINCTRL_PIN(59, "NUCLEI_PADIO59"),
+    PINCTRL_PIN(60, "NUCLEI_PADIO60"),
+    PINCTRL_PIN(61, "NUCLEI_PADIO61"),
+    PINCTRL_PIN(62, "NUCLEI_PADIO62"),
+    PINCTRL_PIN(63, "NUCLEI_PADIO63"),
+    PINCTRL_PIN(64, "NUCLEI_PADIO64"),
+    PINCTRL_PIN(65, "NUCLEI_PADIO65"),
+    PINCTRL_PIN(66, "NUCLEI_PADIO66"),
+    PINCTRL_PIN(67, "NUCLEI_PADIO67"),
+    PINCTRL_PIN(68, "NUCLEI_PADIO68"),
+    PINCTRL_PIN(69, "NUCLEI_PADIO69"),
+    PINCTRL_PIN(70, "NUCLEI_PADIO70"),
+    PINCTRL_PIN(71, "NUCLEI_PADIO71"),
+    PINCTRL_PIN(72, "NUCLEI_PADIO72"),
+    PINCTRL_PIN(73, "NUCLEI_PADIO73"),
+    PINCTRL_PIN(74, "NUCLEI_PADIO74"),
+    PINCTRL_PIN(75, "NUCLEI_PADIO75"),
+    PINCTRL_PIN(76, "NUCLEI_PADIO76"),
+    PINCTRL_PIN(77, "NUCLEI_PADIO77"),
+    PINCTRL_PIN(78, "NUCLEI_PADIO78"),
+    PINCTRL_PIN(79, "NUCLEI_PADIO79"),
+    PINCTRL_PIN(80, "NUCLEI_PADIO80"),
+    PINCTRL_PIN(81, "NUCLEI_PADIO81"),
+    PINCTRL_PIN(82, "NUCLEI_PADIO82"),
+    PINCTRL_PIN(83, "NUCLEI_PADIO83"),
+    PINCTRL_PIN(84, "NUCLEI_PADIO84"),
+    PINCTRL_PIN(85, "NUCLEI_PADIO85"),
+    PINCTRL_PIN(86, "NUCLEI_PADIO86"),
+    PINCTRL_PIN(87, "NUCLEI_PADIO87"),
+    PINCTRL_PIN(88, "NUCLEI_PADIO88"),
+    PINCTRL_PIN(89, "NUCLEI_PADIO89"),
+    PINCTRL_PIN(90, "NUCLEI_PADIO90"),
+    PINCTRL_PIN(91, "NUCLEI_PADIO91"),
+    PINCTRL_PIN(92, "NUCLEI_PADIO92"),
+    PINCTRL_PIN(93, "NUCLEI_PADIO93"),
+    PINCTRL_PIN(94, "NUCLEI_PADIO94"),
+    PINCTRL_PIN(95, "NUCLEI_PADIO95"),
+    PINCTRL_PIN(96, "NUCLEI_PADIO96"),
+    PINCTRL_PIN(97, "NUCLEI_PADIO97"),
+    PINCTRL_PIN(98, "NUCLEI_PADIO98"),
+    PINCTRL_PIN(99, "NUCLEI_PADIO99"),
+    PINCTRL_PIN(100, "NUCLEI_PADIO100"),
+    PINCTRL_PIN(101, "NUCLEI_PADIO101"),
+    PINCTRL_PIN(102, "NUCLEI_PADIO102"),
+    PINCTRL_PIN(103, "NUCLEI_PADIO103"),
+    PINCTRL_PIN(104, "NUCLEI_PADIO104"),
+    PINCTRL_PIN(105, "NUCLEI_PADIO105"),
+    PINCTRL_PIN(106, "NUCLEI_PADIO106"),
+    PINCTRL_PIN(107, "NUCLEI_PADIO107"),
+    PINCTRL_PIN(108, "NUCLEI_PADIO108"),
+    PINCTRL_PIN(109, "NUCLEI_PADIO109"),
+    PINCTRL_PIN(110, "NUCLEI_PADIO110"),
+    PINCTRL_PIN(111, "NUCLEI_PADIO111"),
+    PINCTRL_PIN(112, "NUCLEI_PADIO112"),
+    PINCTRL_PIN(113, "NUCLEI_PADIO113"),
+    PINCTRL_PIN(114, "NUCLEI_PADIO114"),
+    PINCTRL_PIN(115, "NUCLEI_PADIO115"),
+    PINCTRL_PIN(116, "NUCLEI_PADIO116"),
+    PINCTRL_PIN(117, "NUCLEI_PADIO117"),
+    PINCTRL_PIN(118, "NUCLEI_PADIO118"),
+    PINCTRL_PIN(119, "NUCLEI_PADIO119"),
+    PINCTRL_PIN(120, "NUCLEI_PADIO120"),
+    PINCTRL_PIN(121, "NUCLEI_PADIO121"),
+    PINCTRL_PIN(122, "NUCLEI_PADIO122"),
+    PINCTRL_PIN(123, "NUCLEI_PADIO123"),
+    PINCTRL_PIN(124, "NUCLEI_PADIO124"),
+    PINCTRL_PIN(125, "NUCLEI_PADIO125"),
+    PINCTRL_PIN(126, "NUCLEI_PADIO126"),
+    PINCTRL_PIN(127, "NUCLEI_PADIO127"),
+    PINCTRL_PIN(128, "NUCLEI_PADIO128"),
+    PINCTRL_PIN(129, "NUCLEI_PADIO129"),
+    PINCTRL_PIN(130, "NUCLEI_PADIO130"),
+    PINCTRL_PIN(131, "NUCLEI_PADIO131"),
+    PINCTRL_PIN(132, "NUCLEI_PADIO132"),
+    PINCTRL_PIN(133, "NUCLEI_PADIO133"),
+    PINCTRL_PIN(134, "NUCLEI_PADIO134"),
+    PINCTRL_PIN(135, "NUCLEI_PADIO135"),
+    PINCTRL_PIN(136, "NUCLEI_PADIO136"),
+    PINCTRL_PIN(137, "NUCLEI_PADIO137"),
+    PINCTRL_PIN(138, "NUCLEI_PADIO138"),
+    PINCTRL_PIN(139, "NUCLEI_PADIO139"),
+    PINCTRL_PIN(140, "NUCLEI_PADIO140"),
+    PINCTRL_PIN(141, "NUCLEI_PADIO141"),
+    PINCTRL_PIN(142, "NUCLEI_PADIO142"),
+    PINCTRL_PIN(143, "NUCLEI_PADIO143"),
+    PINCTRL_PIN(144, "NUCLEI_PADIO144"),
+    PINCTRL_PIN(145, "NUCLEI_PADIO145"),
+    PINCTRL_PIN(146, "NUCLEI_PADIO146"),
+    PINCTRL_PIN(147, "NUCLEI_PADIO147"),
+    PINCTRL_PIN(148, "NUCLEI_PADIO148"),
+    PINCTRL_PIN(149, "NUCLEI_PADIO149"),
+    PINCTRL_PIN(150, "NUCLEI_PADIO150"),
+    PINCTRL_PIN(151, "NUCLEI_PADIO151"),
+    PINCTRL_PIN(152, "NUCLEI_PADIO152"),
+    PINCTRL_PIN(153, "NUCLEI_PADIO153"),
+    PINCTRL_PIN(154, "NUCLEI_PADIO154"),
+    PINCTRL_PIN(155, "NUCLEI_PADIO155"),
+    PINCTRL_PIN(156, "NUCLEI_PADIO156"),
+    PINCTRL_PIN(157, "NUCLEI_PADIO157"),
+    PINCTRL_PIN(158, "NUCLEI_PADIO158"),
+    PINCTRL_PIN(159, "NUCLEI_PADIO159"),
+    PINCTRL_PIN(160, "NUCLEI_PADIO160"),
+    PINCTRL_PIN(161, "NUCLEI_PADIO161"),
+    PINCTRL_PIN(162, "NUCLEI_PADIO162"),
+    PINCTRL_PIN(163, "NUCLEI_PADIO163"),
+    PINCTRL_PIN(164, "NUCLEI_PADIO164"),
+    PINCTRL_PIN(165, "NUCLEI_PADIO165"),
+    PINCTRL_PIN(166, "NUCLEI_PADIO166"),
+    PINCTRL_PIN(167, "NUCLEI_PADIO167"),
+    PINCTRL_PIN(168, "NUCLEI_PADIO168"),
+};
+
+static const struct nuclei_pinctrl_soc_info nuclei_t0_pinctrl_info = {
+	.pins = nuclei_t0_pinctrl_pads,
+	.npins = ARRAY_SIZE(nuclei_t0_pinctrl_pads),
+};
+
+static const struct of_device_id nuclei_t0_pinctrl_of_match[] = {
+	{ .compatible = "nuclei,iomuxc", },
+	{ /* sentinel */ }
+};
+
+const int nuclei_gpio_iof[] = {
+    39,  // GPIO 0  (G0, ls_iof=39)
+    40,  // GPIO 1  (G0, ls_iof=40)
+    41,  // GPIO 2  (G0, ls_iof=41)
+    42,  // GPIO 3  (G0, ls_iof=42)
+    92,  // GPIO 4  (G1, ls_iof=92)
+    93,  // GPIO 5  (G1, ls_iof=93)
+    94,  // GPIO 6  (G1, ls_iof=94)
+    95,  // GPIO 7  (G1, ls_iof=95)
+    152, // GPIO 8  (G2, ls_iof=152)
+    153, // GPIO 9  (G2, ls_iof=153)
+    154, // GPIO 10 (G2, ls_iof=154)
+    155, // GPIO 11 (G2, ls_iof=155)
+    209, // GPIO 12 (G3, ls_iof=209)
+    210, // GPIO 13 (G3, ls_iof=210)
+    211, // GPIO 14 (G3, ls_iof=211)
+    212, // GPIO 15 (G3, ls_iof=212)
+    264, // GPIO 16 (G4, ls_iof=264)
+    265, // GPIO 17 (G4, ls_iof=265)
+    266, // GPIO 18 (G4, ls_iof=266)
+    267, // GPIO 19 (G4, ls_iof=267)
+    313, // GPIO 20 (G5, ls_iof=313)
+    314, // GPIO 21 (G5, ls_iof=314)
+    315, // GPIO 22 (G5, ls_iof=315)
+    316, // GPIO 23 (G5, ls_iof=316)
+    350, // GPIO 24 (G6, ls_iof=350)
+    351, // GPIO 25 (G6, ls_iof=351)
+    352, // GPIO 26 (G6, ls_iof=352)
+    353, // GPIO 27 (G6, ls_iof=353)
+    394, // GPIO 28 (G7, ls_iof=394)
+    395, // GPIO 29 (G7, ls_iof=395)
+    396, // GPIO 30 (G7, ls_iof=396)
+    397  // GPIO 31 (G7, ls_iof=397)
+};
+
+int nuclei_pinctrl_get_gpioiof(unsigned int gpio)
+{
+	if (gpio <= 31)
+		return nuclei_gpio_iof[gpio];
+	else
+		return -1;
+}
+
+/*
+ * GRP 0: PAD 0-21   | GRP 1: PAD 22-42  | GRP 2: PAD 43-63
+ * GRP 3: PAD 64-84  | GRP 4: PAD 85-105 | GRP 5: PAD 106-126
+ * GRP 6: PAD 127-147 | GRP 7: PAD 148-168 
+*/
+
+int nuclei_pinctrl_get_grpid(unsigned int padid)
+{
+	int grpid = -1;
+	
+	if (padid < 22)
+		grpid = 0;
+	else if (padid < 43)
+		grpid = 1;
+	else if (padid < 64)
+		grpid = 2;
+	else if (padid < 85)
+		grpid = 3;
+	else if (padid < 106)
+		grpid = 4;
+	else if (padid < 127)
+		grpid = 5;
+	else if (padid < 148)
+		grpid = 6;
+	else if (padid < 169)
+		grpid = 7;
+
+	return grpid;
+}
+
+static int nuclei_t0_pinctrl_probe(struct platform_device *pdev)
+{
+	return nuclei_pinctrl_probe(pdev, &nuclei_t0_pinctrl_info);
+}
+
+static struct platform_driver nuclei_t0_pinctrl_driver = {
+	.driver = {
+		.name = "nuclei-t0-pinctrl",
+		.of_match_table = nuclei_t0_pinctrl_of_match,
+		.suppress_bind_attrs = true,
+	},
+	.probe = nuclei_t0_pinctrl_probe,
+};
+
+static int __init nuclei_t0_pinctrl_init(void)
+{
+	return platform_driver_register(&nuclei_t0_pinctrl_driver);
+}
+arch_initcall(nuclei_t0_pinctrl_init);

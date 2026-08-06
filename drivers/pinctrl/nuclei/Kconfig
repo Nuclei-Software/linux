@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config PINCTRL_NUCLEI
+	tristate
+	depends on OF
+	select GENERIC_PINCTRL_GROUPS
+	select GENERIC_PINMUX_FUNCTIONS
+	select PINCONF
+	select GENERIC_PINCONF
+
+config PINCTRL_NUCLEI_T0
+	bool "NUCLEI T0 pinctrl driver"
+	select PINCTRL_NUCLEI
+	help
+	  Say Y here to enable the NUCLEI pinctrl driver
