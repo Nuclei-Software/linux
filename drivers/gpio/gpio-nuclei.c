@@ -1,278 +1,431 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * Copyright (C) 2019 SiFive
- * Copyright (C) 2019 Nuclei
+ * Nuclei GPIO controller driver
  *
- * Modified based on linux/drivers/gpio/gpio-sifive.c
- */
+ * Copyright (C) 2026 Nucleisys, Inc.
+ *
+ */ 
 
-#include <linux/bitops.h>
-#include <linux/device.h>
-#include <linux/errno.h>
-#include <linux/of_irq.h>
-#include <linux/gpio/driver.h>
-#include <linux/init.h>
+#include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/of.h>
+#include <linux/err.h>
+#include <linux/io.h>
+#include <linux/gpio/driver.h>
+#include <linux/irq.h>
+#include <linux/interrupt.h>
 #include <linux/slab.h>
-#include <linux/spinlock.h>
-#include <linux/regmap.h>
+#include <linux/pinctrl/pinconf-generic.h>
+#include <linux/bitops.h>
 
-#define NUCLEI_GPIO_INPUT_VAL	0x00
-#define NUCLEI_GPIO_INPUT_EN	0x04
-#define NUCLEI_GPIO_OUTPUT_EN	0x08
-#define NUCLEI_GPIO_OUTPUT_VAL	0x0C
-#define NUCLEI_GPIO_RISE_IE	0x18
-#define NUCLEI_GPIO_RISE_IP	0x1C
-#define NUCLEI_GPIO_FALL_IE	0x20
-#define NUCLEI_GPIO_FALL_IP	0x24
-#define NUCLEI_GPIO_HIGH_IE	0x28
-#define NUCLEI_GPIO_HIGH_IP	0x2C
-#define NUCLEI_GPIO_LOW_IE	0x30
-#define NUCLEI_GPIO_LOW_IP	0x34
-#define NUCLEI_GPIO_OUTPUT_XOR	0x40
+#define GPIO_REG_IVAL            0x00
+#define GPIO_REG_MODE0           0x08
+#define GPIO_REG_MODE1           0x0c
+#define GPIO_REG_OVAL            0x10
+#define GPIO_REG_RISE_IE         0x14
+#define GPIO_REG_RISE_IP         0x18
+#define GPIO_REG_FALL_IE         0x1c
+#define GPIO_REG_FALL_IP         0x20
+#define GPIO_REG_HIGH_IE         0x24
+#define GPIO_REG_HIGH_IP         0x28
+#define GPIO_REG_LOW_IE          0x2c
+#define GPIO_REG_LOW_IP          0x30
+#define GPIO_REG_OUT_MASK        0x44
+#define GPIO_REG_BIT_SET         0x48
+#define GPIO_REG_BIT_RESET       0x4c
+#define GPIO_REG_BIT_TOGGLE      0x50
+#define GPIO_REG_PULL_MODE0      0x54
+#define GPIO_REG_PULL_MODE1      0x58
+#define GPIO_REG_IRQ_STATUS      0x90
 
-#define NUCLEI_GPIO_MAX		32
+#define NUCLEI_GPIO_NGPIO        32
 
 struct nuclei_gpio {
-	void __iomem		*base;
-	struct gpio_chip	gc;
-	struct regmap		*regs;
-	unsigned long		irq_state;
-	unsigned int		trigger[NUCLEI_GPIO_MAX];
-	unsigned int		irq_number[NUCLEI_GPIO_MAX];
+	void __iomem *base;
+	struct gpio_chip gc;
+	int parent_irq;
+	unsigned int parent_irqs[1];
+	spinlock_t lock;
+	u8 irq_type[32]; /* per-gpio irq type */
 };
 
-static void nuclei_gpio_set_ie(struct nuclei_gpio *chip, unsigned int offset)
+static inline u32 nuclei_readl(struct nuclei_gpio *ng, unsigned int reg)
 {
-	unsigned long flags;
-	unsigned int trigger;
-
-	raw_spin_lock_irqsave(&chip->gc.bgpio_lock, flags);
-	trigger = (chip->irq_state & BIT(offset)) ? chip->trigger[offset] : 0;
-	regmap_update_bits(chip->regs, NUCLEI_GPIO_RISE_IE, BIT(offset),
-			   (trigger & IRQ_TYPE_EDGE_RISING) ? BIT(offset) : 0);
-	regmap_update_bits(chip->regs, NUCLEI_GPIO_FALL_IE, BIT(offset),
-			   (trigger & IRQ_TYPE_EDGE_FALLING) ? BIT(offset) : 0);
-	regmap_update_bits(chip->regs, NUCLEI_GPIO_HIGH_IE, BIT(offset),
-			   (trigger & IRQ_TYPE_LEVEL_HIGH) ? BIT(offset) : 0);
-	regmap_update_bits(chip->regs, NUCLEI_GPIO_LOW_IE, BIT(offset),
-			   (trigger & IRQ_TYPE_LEVEL_LOW) ? BIT(offset) : 0);
-	raw_spin_unlock_irqrestore(&chip->gc.bgpio_lock, flags);
+	return readl(ng->base + reg);
 }
 
-static int nuclei_gpio_irq_set_type(struct irq_data *d, unsigned int trigger)
+static inline void nuclei_writel(struct nuclei_gpio *ng, unsigned int reg, u32 val)
 {
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct nuclei_gpio *chip = gpiochip_get_data(gc);
-	int offset = irqd_to_hwirq(d);
+	writel(val, ng->base + reg);
+}
 
-	if (offset < 0 || offset >= gc->ngpio)
+struct nuclei_gpio * nuclei_irq_data_get_gpio_data(struct irq_data *d)
+{
+	struct gpio_chip *chip = irq_data_get_irq_chip_data(d);
+	return gpiochip_get_data(chip);
+}
+
+static int nuclei_gpio_get(struct gpio_chip *gc, unsigned int offset)
+{
+	struct nuclei_gpio *ng = gpiochip_get_data(gc);
+
+	if (!test_bit(offset, gc->valid_mask))
 		return -EINVAL;
 
-	chip->trigger[offset] = trigger;
-	nuclei_gpio_set_ie(chip, offset);
+	return !!(nuclei_readl(ng, GPIO_REG_IVAL) & BIT(offset));
+}
+
+static void nuclei_gpio_set(struct gpio_chip *gc, unsigned int offset, int value)
+{
+	struct nuclei_gpio *ng = gpiochip_get_data(gc);
+	unsigned long flags;
+
+	if (!test_bit(offset, gc->valid_mask))
+		return;
+
+	spin_lock_irqsave(&ng->lock, flags);
+	if (value)
+		nuclei_writel(ng, GPIO_REG_BIT_SET, BIT(offset));
+	else
+		nuclei_writel(ng, GPIO_REG_BIT_RESET, BIT(offset));
+	spin_unlock_irqrestore(&ng->lock, flags);
+}
+
+static int nuclei_gpio_direction_input(struct gpio_chip *gc, unsigned int offset)
+{
+	struct nuclei_gpio *ng = gpiochip_get_data(gc);
+	unsigned long flags;
+	u32 m0, m1;
+
+	if (!test_bit(offset, gc->valid_mask))
+		return -EINVAL;
+
+	spin_lock_irqsave(&ng->lock, flags);
+	m0 = nuclei_readl(ng, GPIO_REG_MODE0);
+	m1 = nuclei_readl(ng, GPIO_REG_MODE1);
+	/* mode bits {MODE1, MODE0} = 00 -> High-z (input) */
+	m0 &= ~BIT(offset);
+	m1 &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_MODE0, m0);
+	nuclei_writel(ng, GPIO_REG_MODE1, m1);
+	spin_unlock_irqrestore(&ng->lock, flags);
+
 	return 0;
 }
 
-static void nuclei_gpio_irq_enable(struct irq_data *d)
+static int nuclei_gpio_direction_output(struct gpio_chip *gc, unsigned int offset,
+				     int value)
 {
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct nuclei_gpio *chip = gpiochip_get_data(gc);
-	irq_hw_number_t hwirq = irqd_to_hwirq(d);
-	int offset = hwirq % NUCLEI_GPIO_MAX;
-	u32 bit = BIT(offset);
+	struct nuclei_gpio *ng = gpiochip_get_data(gc);
+	unsigned long flags;
+	u32 m0, m1;
+
+	if (!test_bit(offset, gc->valid_mask))
+		return -EINVAL;
+
+	nuclei_gpio_set(gc, offset, value);
+
+	spin_lock_irqsave(&ng->lock, flags);
+	m0 = nuclei_readl(ng, GPIO_REG_MODE0);
+	m1 = nuclei_readl(ng, GPIO_REG_MODE1);
+	/* {MODE1,MODE0} = 01 -> push-pull output */
+	m0 |= BIT(offset);
+	m1 &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_MODE0, m0);
+	nuclei_writel(ng, GPIO_REG_MODE1, m1);
+	spin_unlock_irqrestore(&ng->lock, flags);
+
+	return 0;
+}
+
+static int nuclei_gpio_set_config(struct gpio_chip *gc, unsigned int offset,
+			       unsigned long config)
+{
+	struct nuclei_gpio *ng = gpiochip_get_data(gc);
+	enum pin_config_param param = pinconf_to_config_param(config);
+	unsigned long flags;
+	u32 p0, p1;
+
+	if (!test_bit(offset, gc->valid_mask))
+		return -EINVAL;
+
+	switch (param) {
+	case PIN_CONFIG_BIAS_PULL_UP:
+		spin_lock_irqsave(&ng->lock, flags);
+		p0 = nuclei_readl(ng, GPIO_REG_PULL_MODE0);
+		p1 = nuclei_readl(ng, GPIO_REG_PULL_MODE1);
+		/* pull-up: {PULL_MODE1,PULL_MODE0} = 01 -> PULL_UP=1 */
+		p0 |= BIT(offset);
+		p1 &= ~BIT(offset);
+		nuclei_writel(ng, GPIO_REG_PULL_MODE0, p0);
+		nuclei_writel(ng, GPIO_REG_PULL_MODE1, p1);
+		spin_unlock_irqrestore(&ng->lock, flags);
+		return 0;
+	case PIN_CONFIG_BIAS_PULL_DOWN:
+		spin_lock_irqsave(&ng->lock, flags);
+		p0 = nuclei_readl(ng, GPIO_REG_PULL_MODE0);
+		p1 = nuclei_readl(ng, GPIO_REG_PULL_MODE1);
+		/* pull-down: {PULL_MODE1,PULL_MODE0} = 11 -> PULL_DOWN=1 */
+		p0 |= BIT(offset);
+		p1 |= BIT(offset);
+		nuclei_writel(ng, GPIO_REG_PULL_MODE0, p0);
+		nuclei_writel(ng, GPIO_REG_PULL_MODE1, p1);
+		spin_unlock_irqrestore(&ng->lock, flags);
+		return 0;
+	case PIN_CONFIG_BIAS_DISABLE:
+		spin_lock_irqsave(&ng->lock, flags);
+		p0 = nuclei_readl(ng, GPIO_REG_PULL_MODE0);
+		p1 = nuclei_readl(ng, GPIO_REG_PULL_MODE1);
+		/* disable pull: 00 */
+		p0 &= ~BIT(offset);
+		p1 &= ~BIT(offset);
+		nuclei_writel(ng, GPIO_REG_PULL_MODE0, p0);
+		nuclei_writel(ng, GPIO_REG_PULL_MODE1, p1);
+		spin_unlock_irqrestore(&ng->lock, flags);
+		return 0;
+	default:
+		return -ENOTSUPP;
+	}
+}
+
+/* IRQ support: simple irq_chip that maps each GPIO to a virtual IRQ.
+ * Parent IRQ is shared by all lines; chained handler demuxes by reading pending IP registers.
+ */
+static void nuclei_irq_mask(struct irq_data *d)
+{
+	struct nuclei_gpio *ng = nuclei_irq_data_get_gpio_data(d);
+	unsigned int offset = d->hwirq;
+	unsigned long flags;
+	u32 r;
+
+	spin_lock_irqsave(&ng->lock, flags);
+	/* clear all IE bits for this GPIO */
+	r = nuclei_readl(ng, GPIO_REG_RISE_IE);
+	r &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_RISE_IE, r);
+	r = nuclei_readl(ng, GPIO_REG_FALL_IE);
+	r &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_FALL_IE, r);
+	r = nuclei_readl(ng, GPIO_REG_HIGH_IE);
+	r &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_HIGH_IE, r);
+	r = nuclei_readl(ng, GPIO_REG_LOW_IE);
+	r &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_LOW_IE, r);
+	spin_unlock_irqrestore(&ng->lock, flags);
+}
+
+static void nuclei_irq_unmask(struct irq_data *d)
+{
+	struct nuclei_gpio *ng = nuclei_irq_data_get_gpio_data(d);
+	unsigned int offset = d->hwirq;
+	unsigned long flags;
+	u32 r;
+
+	spin_lock_irqsave(&ng->lock, flags);
+	/* enable based on stored irq_type */
+	if (ng->irq_type[offset] & IRQ_TYPE_EDGE_RISING) {
+		r = nuclei_readl(ng, GPIO_REG_RISE_IE);
+		r |= BIT(offset);
+		nuclei_writel(ng, GPIO_REG_RISE_IE, r);
+	}
+	if (ng->irq_type[offset] & IRQ_TYPE_EDGE_FALLING) {
+		r = nuclei_readl(ng, GPIO_REG_FALL_IE);
+		r |= BIT(offset);
+		nuclei_writel(ng, GPIO_REG_FALL_IE, r);
+	}
+	if (ng->irq_type[offset] & IRQ_TYPE_LEVEL_HIGH) {
+		r = nuclei_readl(ng, GPIO_REG_HIGH_IE);
+		r |= BIT(offset);
+		nuclei_writel(ng, GPIO_REG_HIGH_IE, r);
+	}
+	if (ng->irq_type[offset] & IRQ_TYPE_LEVEL_LOW) {
+		r = nuclei_readl(ng, GPIO_REG_LOW_IE);
+		r |= BIT(offset);
+		nuclei_writel(ng, GPIO_REG_LOW_IE, r);
+	}
+	spin_unlock_irqrestore(&ng->lock, flags);
+}
+
+static int nuclei_irq_set_type(struct irq_data *d, unsigned int type)
+{
+	struct nuclei_gpio *ng = nuclei_irq_data_get_gpio_data(d);
 	unsigned long flags;
 
-	gpiochip_enable_irq(gc, hwirq);
-	irq_chip_enable_parent(d);
+	if (type & ~(IRQ_TYPE_EDGE_RISING | IRQ_TYPE_EDGE_FALLING |
+				 IRQ_TYPE_LEVEL_LOW | IRQ_TYPE_LEVEL_HIGH))
+		return -EINVAL;
 
-	/* Switch to input */
-	gc->direction_input(gc, offset);
+	spin_lock_irqsave(&ng->lock, flags);
+	ng->irq_type[d->hwirq] = type;
+	spin_unlock_irqrestore(&ng->lock, flags);
 
-	raw_spin_lock_irqsave(&gc->bgpio_lock, flags);
-	/* Clear any sticky pending interrupts */
-	regmap_write(chip->regs, NUCLEI_GPIO_RISE_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_FALL_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_HIGH_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_LOW_IP, bit);
-	raw_spin_unlock_irqrestore(&gc->bgpio_lock, flags);
-
-	/* Enable interrupts */
-	assign_bit(offset, &chip->irq_state, 1);
-	nuclei_gpio_set_ie(chip, offset);
+	return 0;
 }
 
-static void nuclei_gpio_irq_disable(struct irq_data *d)
+static void nuclei_irq_ack(struct irq_data *d)
 {
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct nuclei_gpio *chip = gpiochip_get_data(gc);
-	irq_hw_number_t hwirq = irqd_to_hwirq(d);
-	int offset = hwirq % NUCLEI_GPIO_MAX;
-
-	assign_bit(offset, &chip->irq_state, 0);
-	nuclei_gpio_set_ie(chip, offset);
-	irq_chip_disable_parent(d);
-	gpiochip_disable_irq(gc, hwirq);
-}
-
-static void nuclei_gpio_irq_eoi(struct irq_data *d)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct nuclei_gpio *chip = gpiochip_get_data(gc);
-	int offset = irqd_to_hwirq(d) % NUCLEI_GPIO_MAX;
-	u32 bit = BIT(offset);
+	struct nuclei_gpio *ng = nuclei_irq_data_get_gpio_data(d);
+	unsigned int offset = d->hwirq;
 	unsigned long flags;
+	u32 v;
 
-	raw_spin_lock_irqsave(&gc->bgpio_lock, flags);
-	/* Clear all pending interrupts */
-	regmap_write(chip->regs, NUCLEI_GPIO_RISE_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_FALL_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_HIGH_IP, bit);
-	regmap_write(chip->regs, NUCLEI_GPIO_LOW_IP, bit);
-	raw_spin_unlock_irqrestore(&gc->bgpio_lock, flags);
-
-	irq_chip_eoi_parent(d);
+	/* clear pending bits by writing 0 to IP registers */
+	spin_lock_irqsave(&ng->lock, flags);
+	v = nuclei_readl(ng, GPIO_REG_RISE_IP);
+	v &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_RISE_IP, v);
+	v = nuclei_readl(ng, GPIO_REG_FALL_IP);
+	v &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_FALL_IP, v);
+	v = nuclei_readl(ng, GPIO_REG_HIGH_IP);
+	v &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_HIGH_IP, v);
+	v = nuclei_readl(ng, GPIO_REG_LOW_IP);
+	v &= ~BIT(offset);
+	nuclei_writel(ng, GPIO_REG_LOW_IP, v);
+	spin_unlock_irqrestore(&ng->lock, flags);
 }
 
-static int nuclei_gpio_irq_set_affinity(struct irq_data *data,
-					const struct cpumask *dest,
-					bool force)
-{
-	if (data->parent_data)
-		return irq_chip_set_affinity_parent(data, dest, force);
-
-	return -EINVAL;
-}
-
-static const struct irq_chip nuclei_gpio_irqchip = {
-	.name		= "nuclei-gpio",
-	.irq_set_type	= nuclei_gpio_irq_set_type,
-	.irq_mask	= irq_chip_mask_parent,
-	.irq_unmask	= irq_chip_unmask_parent,
-	.irq_enable	= nuclei_gpio_irq_enable,
-	.irq_disable	= nuclei_gpio_irq_disable,
-	.irq_eoi	= nuclei_gpio_irq_eoi,
-	.irq_set_affinity = nuclei_gpio_irq_set_affinity,
-	.flags		= IRQCHIP_IMMUTABLE,
+static struct irq_chip nuclei_irqchip = {
+	.name = "nuclei-gpio",
+	.irq_mask = nuclei_irq_mask,
+	.irq_unmask = nuclei_irq_unmask,
+	.irq_set_type = nuclei_irq_set_type,
+	.irq_ack = nuclei_irq_ack,
+	.flags =  IRQCHIP_IMMUTABLE,
 	GPIOCHIP_IRQ_RESOURCE_HELPERS,
 };
 
-static int nuclei_gpio_child_to_parent_hwirq(struct gpio_chip *gc,
-					     unsigned int child,
-					     unsigned int child_type,
-					     unsigned int *parent,
-					     unsigned int *parent_type)
+static void nuclei_gpio_clear_intr_pending(struct nuclei_gpio *ng, u32 status)
 {
-	struct nuclei_gpio *chip = gpiochip_get_data(gc);
-	struct irq_data *d = irq_get_irq_data(chip->irq_number[child]);
+	u32 val;
 
-	*parent_type = IRQ_TYPE_NONE;
-	*parent = irqd_to_hwirq(d);
+	val = nuclei_readl(ng, GPIO_REG_RISE_IP);
+	if (val & status) {
+		val &= ~status;
+		nuclei_writel(ng, GPIO_REG_RISE_IP, val);
+	}
 
-	return 0;
+	val = nuclei_readl(ng, GPIO_REG_FALL_IP);
+	if (val & status) {
+		val &= ~status;
+		nuclei_writel(ng, GPIO_REG_FALL_IP, val);
+	}
+
+	val = nuclei_readl(ng, GPIO_REG_HIGH_IP);
+	if (val & status) {
+		val &= ~status;
+		nuclei_writel(ng, GPIO_REG_HIGH_IP, val);
+	}
+
+	val = nuclei_readl(ng, GPIO_REG_LOW_IP);
+	if (val & status) {
+		val &= ~status;
+		nuclei_writel(ng, GPIO_REG_LOW_IP, val);
+	}
 }
 
-static const struct regmap_config nuclei_gpio_regmap_config = {
-	.reg_bits = 32,
-	.reg_stride = 4,
-	.val_bits = 32,
-	.fast_io = true,
-	.disable_locking = true,
-};
+static void nuclei_gpio_irq_handler(struct irq_desc *desc)
+{
+	struct nuclei_gpio *ng = irq_desc_get_handler_data(desc);
+	struct irq_chip *chip = irq_desc_get_chip(desc);
+	unsigned long status;
+	u32 hw_bit;
+	int virq;
+
+	chained_irq_enter(chip, desc);
+
+	status = (unsigned long)nuclei_readl(ng, GPIO_REG_IRQ_STATUS);
+
+	if (ng->gc.valid_mask)
+		status &= *(ng->gc.valid_mask);
+
+	for_each_set_bit(hw_bit, &status, ng->gc.ngpio) {
+		dev_dbg(ng->gc.parent, "handle irq:%d\n", hw_bit);
+		virq = irq_find_mapping(ng->gc.irq.domain, hw_bit);
+		generic_handle_domain_irq(ng->gc.irq.domain, virq);
+		nuclei_gpio_clear_intr_pending(ng, BIT(hw_bit));
+	}
+
+	chained_irq_exit(chip, desc);
+}
 
 static int nuclei_gpio_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct device_node *node = pdev->dev.of_node;
-	struct device_node *irq_parent;
-	struct irq_domain *parent;
+	struct nuclei_gpio *ng;
 	struct gpio_irq_chip *girq;
-	struct nuclei_gpio *chip;
-	int ret, ngpio, i;
+	int ret;
 
-	chip = devm_kzalloc(dev, sizeof(*chip), GFP_KERNEL);
-	if (!chip)
+	ng = devm_kzalloc(dev, sizeof(*ng), GFP_KERNEL);
+	if (!ng)
 		return -ENOMEM;
 
-	chip->base = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(chip->base)) {
-		dev_err(dev, "failed to allocate device memory\n");
-		return PTR_ERR(chip->base);
+	ng->base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(ng->base))
+		return PTR_ERR(ng->base);
+
+	ng->parent_irq = platform_get_irq(pdev, 0);
+	if (ng->parent_irq < 0 && ng->parent_irq != -ENXIO)
+		return ng->parent_irq;
+
+	spin_lock_init(&ng->lock);
+
+	/* setup gpio_chip */
+	ng->gc.label = dev_name(dev);
+	ng->gc.parent = dev;
+	ng->gc.owner = THIS_MODULE;
+	ng->gc.request = gpiochip_generic_request;
+	ng->gc.free = gpiochip_generic_free;
+	ng->gc.get = nuclei_gpio_get;
+	ng->gc.set = nuclei_gpio_set;
+	ng->gc.direction_input = nuclei_gpio_direction_input;
+	ng->gc.direction_output = nuclei_gpio_direction_output;
+	ng->gc.base = -1;
+	ng->gc.ngpio = NUCLEI_GPIO_NGPIO;
+	ng->gc.can_sleep = false;
+	ng->gc.set_config = nuclei_gpio_set_config;
+	ng->gc.of_gpio_n_cells = 2;
+
+	if (ng->parent_irq > 0) {
+		ng->parent_irqs[0] = ng->parent_irq;
+		girq = &ng->gc.irq;
+		gpio_irq_chip_set_chip(girq, &nuclei_irqchip);
+		girq->parent_handler = nuclei_gpio_irq_handler;
+		girq->parent_handler_data = ng;
+		girq->num_parents = 1;
+		girq->parents = ng->parent_irqs;
+		girq->default_type = IRQ_TYPE_NONE;
+		girq->handler = handle_simple_irq;
 	}
 
-	chip->regs = devm_regmap_init_mmio(dev, chip->base,
-					   &nuclei_gpio_regmap_config);
-	if (IS_ERR(chip->regs))
-		return PTR_ERR(chip->regs);
-
-	ngpio = of_irq_count(node);
-	if (ngpio > NUCLEI_GPIO_MAX) {
-		dev_err(dev, "Too many GPIO interrupts (max=%d)\n",
-			NUCLEI_GPIO_MAX);
-		return -ENXIO;
-	}
-
-	irq_parent = of_irq_find_parent(node);
-	if (!irq_parent) {
-		dev_err(dev, "no IRQ parent node\n");
-		return -ENODEV;
-	}
-	parent = irq_find_host(irq_parent);
-	of_node_put(irq_parent);
-	if (!parent) {
-		dev_err(dev, "no IRQ parent domain\n");
-		return -ENODEV;
-	}
-
-	for (i = 0; i < ngpio; i++)
-		chip->irq_number[i] = platform_get_irq(pdev, i);
-
-	ret = bgpio_init(&chip->gc, dev, 4,
-			 chip->base + NUCLEI_GPIO_INPUT_VAL,
-			 chip->base + NUCLEI_GPIO_OUTPUT_VAL,
-			 NULL,
-			 chip->base + NUCLEI_GPIO_OUTPUT_EN,
-			 chip->base + NUCLEI_GPIO_INPUT_EN,
-			 BGPIOF_READ_OUTPUT_REG_SET);
+	ret = devm_gpiochip_add_data(dev, &ng->gc, ng);
 	if (ret) {
-		dev_err(dev, "unable to init generic GPIO\n");
+		dev_err(dev, "failed to add gpiochip: %d\n", ret);
 		return ret;
 	}
 
-	/* Disable all GPIO interrupts before enabling parent interrupts */
-	regmap_write(chip->regs, NUCLEI_GPIO_RISE_IE, 0);
-	regmap_write(chip->regs, NUCLEI_GPIO_FALL_IE, 0);
-	regmap_write(chip->regs, NUCLEI_GPIO_HIGH_IE, 0);
-	regmap_write(chip->regs, NUCLEI_GPIO_LOW_IE, 0);
-	chip->irq_state = 0;
-
-	chip->gc.base = -1;
-	chip->gc.ngpio = ngpio;
-	chip->gc.label = dev_name(dev);
-	chip->gc.parent = dev;
-	chip->gc.owner = THIS_MODULE;
-	girq = &chip->gc.irq;
-	gpio_irq_chip_set_chip(girq, &nuclei_gpio_irqchip);
-	girq->fwnode = of_node_to_fwnode(node);
-	girq->parent_domain = parent;
-	girq->child_to_parent_hwirq = nuclei_gpio_child_to_parent_hwirq;
-	girq->handler = handle_bad_irq;
-	girq->default_type = IRQ_TYPE_NONE;
-
-	platform_set_drvdata(pdev, chip);
-	return gpiochip_add_data(&chip->gc, chip);
+	dev_info(dev, "probed, ngpio=%u, mask=0x%x, parent_irq=%d\n",
+		 ng->gc.ngpio, ng->gc.valid_mask? *(u32*)(ng->gc.valid_mask) : 0, ng->parent_irq);
+	return 0;
 }
 
-static const struct of_device_id nuclei_gpio_match[] = {
-	{ .compatible = "nuclei,gpio0" },
-	{ },
+static const struct of_device_id nuclei_of_match[] = {
+	{ .compatible = "nuclei,gpio" },
+	{ }
 };
+MODULE_DEVICE_TABLE(of, nuclei_of_match);
 
 static struct platform_driver nuclei_gpio_driver = {
-	.probe		= nuclei_gpio_probe,
+	.probe = nuclei_gpio_probe,
 	.driver = {
-		.name	= "nuclei_gpio",
-		.of_match_table = of_match_ptr(nuclei_gpio_match),
+		.name = "gpio-nuclei",
+		.of_match_table = nuclei_of_match,
 	},
 };
-builtin_platform_driver(nuclei_gpio_driver)
+
+module_platform_driver(nuclei_gpio_driver);
+
+MODULE_DESCRIPTION("Nuclei GPIO driver");
+MODULE_LICENSE("GPL v2");
