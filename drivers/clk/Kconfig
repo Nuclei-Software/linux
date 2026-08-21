@@ -341,6 +341,15 @@ config COMMON_CLK_NXP
 	help
 	  Support for clock providers on NXP platforms.
 
+config COMMON_CLK_NUCLEI
+	tristate "Clock driver for Nuclei SoC clock controler"
+	depends on COMMON_CLK
+	depends on OF
+	select RESET_CONTROLLER
+	help
+	  Support for a Nuclei clock controller that can select
+	  between optional external clock inputs such as clk_in1..clk_in4.
+
 config COMMON_CLK_PALMAS
 	tristate "Clock driver for TI Palmas devices"
 	depends on MFD_PALMAS
