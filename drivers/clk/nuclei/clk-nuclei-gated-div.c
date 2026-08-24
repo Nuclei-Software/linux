@@ -18,6 +18,7 @@
 struct nuclei_gated_div_hw {
 	struct clk_hw hw;
 	struct nuclei_clk_data *data;
+	enum nuclei_misc_type misc;
 	unsigned int div_reg;
 	unsigned int gate_reg;
 	unsigned int gate_bit;
@@ -34,8 +35,8 @@ static int nuclei_gated_div_enable(struct clk_hw *hw)
 	if (!div->gate_reg)
 		return 0;
 
-	nuclei_clk_update_bits(div->data, div->gate_reg, BIT(div->gate_bit),
-			       BIT(div->gate_bit));
+	nuclei_clk_update_bits_type(div->data, div->gate_reg, BIT(div->gate_bit),
+			       BIT(div->gate_bit), div->misc);
 	return 0;
 }
 
@@ -45,7 +46,8 @@ static void nuclei_gated_div_disable(struct clk_hw *hw)
 
 	if (!div->gate_reg)
 		return;
-	nuclei_clk_update_bits(div->data, div->gate_reg, BIT(div->gate_bit), 0);
+	nuclei_clk_update_bits_type(div->data, div->gate_reg, BIT(div->gate_bit),
+                    0, div->misc);
 }
 
 static int nuclei_gated_div_is_enabled(struct clk_hw *hw)
@@ -56,7 +58,7 @@ static int nuclei_gated_div_is_enabled(struct clk_hw *hw)
 	if (!div->gate_reg)
 		return 1;
 
-	val = nuclei_clk_readl(div->data, div->gate_reg);
+	val = nuclei_clk_readl_type(div->data, div->gate_reg, div->misc);
 	return !!(val & BIT(div->gate_bit));
 }
 
@@ -223,6 +225,7 @@ int nuclei_clk_register_gated_divs(struct device *dev,
 		div->gate_reg = d->gate_reg;
 		div->gate_bit = d->gate_bit;
 		div->max_rate = d->max_rate;
+		div->misc = d->misc;
 
 		hw = &div->hw;
 		ret = clk_hw_register(dev, hw);

@@ -85,9 +85,10 @@
 #define RST_FFT0               64
 #define RST_GMC0               65
 #define RST_XEC_GEN20          66
-/* 67: Reserved */
+#define RST_XEC_GEN21          67
 #define RST_XUC0               68
-/* 69~71: Reserved */
+#define RST_USB_TOP0           69
+/* 70~71: Reserved */
 #define RST_IDU                72
 #define RST_SOC_GLUE           73
 #define RST_PCRC0              74

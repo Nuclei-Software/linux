@@ -100,8 +100,8 @@
 
 #define CLK_XEC_GEN20_SYS             83
 #define CLK_XEC_GEN21_SYS             84
-#define CLK_RMII_CLK_REF              85
-#define CLK_PTP_REF                   86
+#define CLK_XEC_GEN20_RMII_REF        85
+#define CLK_XEC_GEN20_PTP_REF         86
 
 #define CLK_XUC0                      87
 #define CLK_XUC_PHY                   88
@@ -184,6 +184,9 @@
 #define CLK_CTC0                      160
 #define CLK_CTC0_REF                  161
 
-#define CLK_MAX                       162
+#define CLK_XEC_GEN21_RMII_REF        162
+#define CLK_XEC_GEN21_PTP_REF         163
+
+#define CLK_MAX                       164
 
 #endif /* _DT_BINDINGS_CLOCK_NUCLEI_H */

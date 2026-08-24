@@ -106,8 +106,8 @@ enum nuclei_clk_id {
 
 	CLK_XEC_GEN20_SYS,
 	CLK_XEC_GEN21_SYS,
-	CLK_RMII_CLK_REF,
-	CLK_PTP_REF,
+	CLK_XEC_GEN20_RMII_REF,
+	CLK_XEC_GEN20_PTP_REF,
 
 	CLK_XUC0,
 	CLK_XUC_PHY,
@@ -189,6 +189,9 @@ enum nuclei_clk_id {
 	CLK_OPAMP,
 	CLK_CTC0,
 	CLK_CTC0_REF,
+
+	CLK_XEC_GEN21_RMII_REF,
+	CLK_XEC_GEN21_PTP_REF,
 
 	CLK_MAX,
 };
@@ -375,9 +378,16 @@ enum nuclei_clk_id {
 #define SUBM_CLK_CTRL2_OFS 0x048
 #define SUBM_CLK_CTRL3_OFS 0x04C
 
+enum nuclei_misc_type {
+    MISC_SYS = 0,
+    MISC_XEC = 1,
+    MISC_USB = 2,
+};
+
 struct nuclei_gated_div_desc {
 	const char *name;
 	const char *parent;
+	enum nuclei_misc_type misc;
 	unsigned int div_reg;
 	unsigned int gate_reg;
 	unsigned int gate_bit;
@@ -429,7 +439,7 @@ struct nuclei_pll_desc {
 };
 
 struct nuclei_clk_data {
-	void __iomem *base;
+	void __iomem *base[3];/* 0=SYS, 1=XEC, 2=USB */
 	struct clk_hw_onecell_data *hw_data;
 	struct device *dev;
 	spinlock_t lock;
@@ -438,13 +448,19 @@ struct nuclei_clk_data {
 static inline u32 nuclei_clk_readl(struct nuclei_clk_data *data,
 				   unsigned int reg)
 {
-	return readl(data->base + reg);
+	return readl(data->base[MISC_SYS] + reg);
+}
+
+static inline u32 nuclei_clk_readl_type(struct nuclei_clk_data *data,
+				   unsigned int reg, enum nuclei_misc_type type)
+{
+	return readl(data->base[type] + reg);
 }
 
 static inline void nuclei_clk_writel(struct nuclei_clk_data *data,
 				     unsigned int reg, u32 val)
 {
-	writel(val, data->base + reg);
+	writel(val, data->base[MISC_SYS] + reg);
 }
 
 static inline void nuclei_clk_update_bits(struct nuclei_clk_data *data,
@@ -454,10 +470,25 @@ static inline void nuclei_clk_update_bits(struct nuclei_clk_data *data,
 	u32 tmp;
 
 	spin_lock_irqsave(&data->lock, flags);
-	tmp = readl(data->base + reg);
+	tmp = readl(data->base[MISC_SYS] + reg);
 	tmp &= ~mask;
 	tmp |= val & mask;
-	writel(tmp, data->base + reg);
+	writel(tmp, data->base[MISC_SYS] + reg);
+	spin_unlock_irqrestore(&data->lock, flags);
+}
+
+static inline void nuclei_clk_update_bits_type(struct nuclei_clk_data *data,
+					  unsigned int reg, u32 mask, u32 val,
+					  enum nuclei_misc_type type)
+{
+	unsigned long flags;
+	u32 tmp;
+
+	spin_lock_irqsave(&data->lock, flags);
+	tmp = readl(data->base[type] + reg);
+	tmp &= ~mask;
+	tmp |= val & mask;
+	writel(tmp, data->base[type] + reg);
 	spin_unlock_irqrestore(&data->lock, flags);
 }
 
