@@ -18,6 +18,7 @@
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
 #include <linux/of_reserved_mem.h>
+#include <linux/reset.h>
 
 #define MODNAME "nuclei-xec"
 #define DRV_VERSION "2.00"
@@ -196,7 +197,9 @@ struct netdata_local {
 	unsigned int		last_tx_idx;
 	unsigned int		num_used_tx_buffs;
 	struct mii_bus		*mii_bus;
-	struct clk			*clk;
+	struct reset_control	*rstc;
+	struct clk			*sys_clk;
+	struct clk			*rmii_ref_clk;
 	u32					desc_memtype;
 	dma_addr_t			dma_buff_base_p;
 	void				*dma_buff_base_v;
@@ -980,7 +983,8 @@ static int xec_eth_close(struct net_device *ndev)
 
 	if (ndev->phydev)
 		phy_stop(ndev->phydev);
-	clk_disable_unprepare(pldat->clk);
+	clk_disable_unprepare(pldat->sys_clk);
+	clk_disable_unprepare(pldat->rmii_ref_clk);
 
 	return 0;
 }
@@ -1118,7 +1122,10 @@ static int xec_eth_open(struct net_device *ndev)
 	if (netif_msg_ifup(pldat))
 		dev_dbg(&pldat->pdev->dev, "enabling %s\n", ndev->name);
 
-	ret = clk_prepare_enable(pldat->clk);
+	ret = clk_prepare_enable(pldat->sys_clk);
+	if (ret)
+		return ret;
+	ret = clk_prepare_enable(pldat->rmii_ref_clk);
 	if (ret)
 		return ret;
 
@@ -1223,25 +1230,44 @@ static int xec_eth_drv_probe(struct platform_device *pdev)
 	/* Save resources */
 	ndev->irq = irq;
 
-	/* Get clock for the device */
-	pldat->clk = clk_get(dev, NULL);
-	if (IS_ERR(pldat->clk)) {
-		dev_err(dev, "error getting clock.\n");
-		ret = PTR_ERR(pldat->clk);
+	/* Get sys clock for the device */
+	pldat->sys_clk = devm_clk_get(dev, "sys");
+	if (IS_ERR(pldat->sys_clk)) {
+		dev_err(dev, "error getting sys clock.\n");
+		ret = PTR_ERR(pldat->sys_clk);
 		goto err_out_free_dev;
 	}
 
-	/* Enable network clock */
-	ret = clk_prepare_enable(pldat->clk);
+	/* Enable network sys clock */
+	ret = clk_prepare_enable(pldat->sys_clk);
 	if (ret)
-		goto err_out_clk_put;
+		goto err_out_free_dev;
+	/* Get rmii_ref clock for the device */
+	pldat->rmii_ref_clk = devm_clk_get(dev, "rmii_ref");
+	if (IS_ERR(pldat->rmii_ref_clk)) {
+		dev_err(dev, "error getting rmii clock.\n");
+		ret = PTR_ERR(pldat->rmii_ref_clk);
+		goto err_out_disable_sys_clock;
+	}
 
+	/* Enable network ref clock */
+	ret = clk_prepare_enable(pldat->rmii_ref_clk);
+	if (ret)
+		goto err_out_disable_sys_clock;
+
+	/* Get reset controller */
+	pldat->rstc = devm_reset_control_get_exclusive(dev, NULL);
+	if (!IS_ERR(pldat->rstc)) {
+		reset_control_assert(pldat->rstc);
+		udelay(2);
+		reset_control_deassert(pldat->rstc);
+	}
 	/* Map IO space */
 	pldat->net_base = ioremap(res->start, resource_size(res));
 	if (!pldat->net_base) {
 		dev_err(dev, "failed to map registers\n");
 		ret = -ENOMEM;
-		goto err_out_disable_clocks;
+		goto err_out_disable_rmii_clock;
 	}
 	ret = request_irq(ndev->irq, __xec_eth_interrupt, 0,
 			  ndev->name, ndev);
@@ -1372,10 +1398,10 @@ err_out_free_irq:
 	free_irq(ndev->irq, ndev);
 err_out_iounmap:
 	iounmap(pldat->net_base);
-err_out_disable_clocks:
-	clk_disable_unprepare(pldat->clk);
-err_out_clk_put:
-	clk_put(pldat->clk);
+err_out_disable_rmii_clock:
+	clk_disable_unprepare(pldat->rmii_ref_clk);
+err_out_disable_sys_clock:
+	clk_disable_unprepare(pldat->sys_clk);
 err_out_free_dev:
 	free_netdev(ndev);
 err_exit:
@@ -1400,8 +1426,8 @@ static int xec_eth_drv_remove(struct platform_device *pdev)
 	iounmap(pldat->net_base);
 	mdiobus_unregister(pldat->mii_bus);
 	mdiobus_free(pldat->mii_bus);
-	clk_disable_unprepare(pldat->clk);
-	clk_put(pldat->clk);
+	clk_disable_unprepare(pldat->sys_clk);
+	clk_disable_unprepare(pldat->rmii_ref_clk);
 	free_netdev(ndev);
 
 	return 0;
@@ -1421,8 +1447,8 @@ static int xec_eth_drv_suspend(struct platform_device *pdev,
 		if (netif_running(ndev)) {
 			netif_device_detach(ndev);
 			__xec_eth_shutdown(pldat);
-			clk_disable_unprepare(pldat->clk);
-
+			clk_disable_unprepare(pldat->sys_clk);
+			clk_disable_unprepare(pldat->rmii_ref_clk);
 			/*
 			 * Reset again now clock is disable to be sure
 			 * EMC_MDC is down
@@ -1448,10 +1474,12 @@ static int xec_eth_drv_resume(struct platform_device *pdev)
 			pldat = netdev_priv(ndev);
 
 			/* Enable interface clock */
-			ret = clk_enable(pldat->clk);
+			ret = clk_enable(pldat->sys_clk);
 			if (ret)
 				return ret;
-
+			ret = clk_enable(pldat->rmii_ref_clk);
+			if (ret)
+				return ret;
 			/* Reset and initialize */
 			__xec_eth_reset(pldat);
 			__xec_eth_init(pldat);
