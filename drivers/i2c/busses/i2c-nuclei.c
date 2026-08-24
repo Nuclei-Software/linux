@@ -116,7 +116,8 @@ struct nuclei_i2c_dma {
 struct nuclei_i2c {
 	struct device *dev;
 	void __iomem *base;
-	struct clk *clk;
+	struct clk *apb_clk;
+	struct clk *kern_clk;
 	int bus_clk_rate;
 	struct i2c_adapter adap;
 	struct i2c_msg *msg;
@@ -131,7 +132,7 @@ struct nuclei_i2c {
 enum i2c_sys_clk {
 	I2C_SYS_CLK_8M    = 0,
 	I2C_SYS_CLK_16M   = 1,
-	I2C_SYS_CLK_32M   = 2,
+	I2C_SYS_CLK_48M   = 2,
 	I2C_SYS_CLK_100M  = 3,
 	I2C_SYS_CLK_MAX
 };
@@ -214,6 +215,35 @@ err:
 	return -1;
 }
 
+static enum i2c_sys_clk i2c_nuclei_get_sysclk_idx(struct nuclei_i2c *i2c)
+{
+	unsigned long clk_rate = clk_get_rate(i2c->kern_clk);
+	enum i2c_sys_clk idx;
+
+	switch (clk_rate) {
+	case 8000000:
+		idx = I2C_SYS_CLK_8M;
+		break;
+	case 16000000:
+		idx = I2C_SYS_CLK_16M;
+		break;
+	case 48000000:
+		idx = I2C_SYS_CLK_48M;
+		break;
+	case 100000000:
+		idx = I2C_SYS_CLK_100M;
+		break;
+	default:
+		dev_warn(i2c->dev,
+			 "clk_rate %lu is not support, use 8M timing\n",
+			 clk_rate);
+		idx = I2C_SYS_CLK_8M;
+		break;
+	}
+
+	return idx;
+}
+
 static int i2c_nuclei_init(struct nuclei_i2c *i2c)
 {
 	u32 val;
@@ -247,7 +277,7 @@ static int i2c_nuclei_init(struct nuclei_i2c *i2c)
 		speed = I2C_SPEED_100K;
 		break;
 	};
-	i2c_nuclei_config_timing(i2c, I2C_SYS_CLK_8M, speed);
+	i2c_nuclei_config_timing(i2c, i2c_nuclei_get_sysclk_idx(i2c), speed);
 
 	writel(val, i2c->base + I2C_SETUP_OFFSET);
 
@@ -768,6 +798,7 @@ static int i2c_nuclei_probe(struct platform_device *pdev)
 	struct resource *res;
 	dma_addr_t phy_addr;
 	int ret;
+	struct reset_control *rst;
 
 	i2c = devm_kzalloc(&pdev->dev, sizeof(*i2c), GFP_KERNEL);
 	if (!i2c)
@@ -784,17 +815,39 @@ static int i2c_nuclei_probe(struct platform_device *pdev)
 	if (ret)
 		i2c->bus_clk_rate = I2C_MAX_STANDARD_MODE_FREQ;
 
-	i2c->clk = devm_clk_get(&pdev->dev, NULL);
-	if (IS_ERR(i2c->clk)) {
+	i2c->apb_clk = devm_clk_get(&pdev->dev, "apb");
+	if (IS_ERR(i2c->apb_clk)) {
 		dev_err(&pdev->dev, "error getting clock\n");
-		return PTR_ERR(i2c->clk);
+		return PTR_ERR(i2c->apb_clk);
 	}
 
-	ret = clk_prepare_enable(i2c->clk);
+	ret = clk_prepare_enable(i2c->apb_clk);
 	if (ret) {
 		dev_err(&pdev->dev, "unable to enable clock.");
 		return ret;
 	}
+
+	i2c->kern_clk = devm_clk_get(&pdev->dev, "kern");
+	if (IS_ERR(i2c->kern_clk)) {
+		dev_err(&pdev->dev, "error getting clock\n");
+		return PTR_ERR(i2c->kern_clk);
+	}
+
+	ret = clk_prepare_enable(i2c->kern_clk);
+	if (ret) {
+		dev_err(&pdev->dev, "unable to enable clock.");
+		return ret;
+	}
+
+	rst = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+	if (IS_ERR(rst)) {
+		ret = dev_err_probe(&pdev->dev, PTR_ERR(rst),
+				    "Error: Missing reset ctrl\n");
+		goto fail_clk;
+	}
+	reset_control_assert(rst);
+	udelay(2);
+	reset_control_deassert(rst);
 
 	/* Init i2c ip */
 	i2c_nuclei_init(i2c);
@@ -828,7 +881,9 @@ static int i2c_nuclei_probe(struct platform_device *pdev)
 	return 0;
 
 fail_clk:
-	clk_disable_unprepare(i2c->clk);
+	clk_disable_unprepare(i2c->kern_clk);
+	clk_disable_unprepare(i2c->apb_clk);
+
 	return ret;
 }
 
@@ -841,7 +896,8 @@ static int i2c_nuclei_remove(struct platform_device *dev)
 		nuclei_i2c_dma_free(i2c->dma);
 		i2c->dma = NULL;
 	}
-	clk_disable_unprepare(i2c->clk);
+	clk_disable_unprepare(i2c->kern_clk);
+	clk_disable_unprepare(i2c->apb_clk);
 
 	return 0;
 }
@@ -851,7 +907,8 @@ static int i2c_nuclei_suspend(struct device *dev)
 {
 	struct nuclei_i2c *i2c = dev_get_drvdata(dev);
 
-	clk_disable(i2c->clk);
+	clk_disable(i2c->kern_clk);
+	clk_disable(i2c->apb_clk);
 
 	return 0;
 }
@@ -860,7 +917,8 @@ static int i2c_nuclei_resume(struct device *dev)
 {
 	struct nuclei_i2c *i2c = dev_get_drvdata(dev);
 
-	clk_enable(i2c->clk);
+	clk_enable(i2c->apb_clk);
+	clk_enable(i2c->kern_clk);
 	i2c_nuclei_reset(i2c);
 
 	return 0;
