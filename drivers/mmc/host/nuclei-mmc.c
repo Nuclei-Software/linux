@@ -86,6 +86,9 @@
 #define SDIO_CR_BUSY_CHK			BIT(4)
 #define SDIO_CR_CLK_STOP			BIT(5)
 #define SDIO_CR_DATA_CRC_EN			BIT(7)
+#define SDIO_CR_RST_MODE			GENMASK(22, 21)
+#define SDIO_CR_RST_MODE_OFFSET		21
+#define SDIO_CR_RST_MODE_PWR_ON		0x3
 
 #define SDIO_IE_TX_WM				BIT(0)
 #define SDIO_IE_RX_WM				BIT(1)
@@ -145,7 +148,8 @@
 
 struct nclmmc_host {
 	void __iomem *base;
-	struct clk *clk;
+	struct clk *apb_clk;
+	struct clk *kern_clk;
 	struct reset_control *rstc;
 	struct mmc_host *mmc;
 	struct mmc_request *mrq; /* current mrq */
@@ -175,7 +179,7 @@ static inline int nclmmc_wait_finish(struct nclmmc_host *host, u32 *status)
 			*status = state;
 		writel(state, host->base + SDIO_STATUS);
 	} else {
-		printk(KERN_ERR"pollret:%x time out:%x\n", ret, state);
+		pr_err("pollret:%x time out:%x\n", ret, state);
 	}
 
 	return ret;
@@ -201,7 +205,7 @@ static void nclmmc_set_bus_clk(struct nclmmc_host *host, int clk)
 	u32 clk_src;
 
 	if (clk > 0 && host->cur_clk != clk) {
-		clk_src = clk_get_rate(host->clk);
+		clk_src = clk_get_rate(host->kern_clk);
 		clk_div = clk_src / clk;
 		if (clk_src % clk)
 			clk_div++;
@@ -295,14 +299,14 @@ static int nclmmc_check_error(struct nclmmc_host *host, struct mmc_request *mrq,
 
 	if (status & SDIO_STATUS_ERR) {
 		if (cmd->opcode == 38) {
-			printk(KERN_WARNING"wait cmd38");
+			pr_warn("wait cmd38");
 			while(readl(host->base + SDIO_STATUS) & BIT(6));
-			printk(KERN_WARNING"cmd38 finished");
+			pr_warn("cmd38 finished");
 			cmd->error = 0;
 			return 0;
 		}
-		printk(KERN_ERR"cmd%d err status:0x%x\n",cmd->opcode, status);
-		printk(KERN_ERR"op:%x,args:%x,ds:%x\n",readl(host->base + SDIO_CMD_OP), readl(host->base + SDIO_CMD_ARG),
+		pr_debug("cmd%d err status:0x%x\n",cmd->opcode, status);
+		pr_debug("op:%x,args:%x,ds:%x\n",readl(host->base + SDIO_CMD_OP), readl(host->base + SDIO_CMD_ARG),
 				readl(host->base + SDIO_DATA_SETUP));
 		ret = -ETIMEDOUT;
 
@@ -318,7 +322,7 @@ static int nclmmc_check_error(struct nclmmc_host *host, struct mmc_request *mrq,
 	} else if (status & (SDIO_STATUS_TXUDR_ERR |
 	   SDIO_STATUS_TXOVF_ERR | SDIO_STATUS_RXUDR_ERR
 	   | SDIO_STATUS_RXOVF_ERR)){
-		printk(KERN_ERR"cmd%d OVF/UDF status:0x%x\n",cmd->opcode, status);
+		pr_debug("cmd%d OVF/UDF status:0x%x\n",cmd->opcode, status);
 		data->error = -ECOMM;
 	} else if (data) {
 		data->error = 0;
@@ -329,35 +333,19 @@ static int nclmmc_check_error(struct nclmmc_host *host, struct mmc_request *mrq,
 	return ret;
 }
 
-void dump_data(char *buf, int len)
-{
-#if 0
-	int i;
-
-	for(i = 0; i < len; i++) {
-		printk(KERN_CONT "%02x ", buf[i]);
-		if ((i+1)%16 ==0)
-			printk("\n");
-	}
-#endif
-}
-
 static void nclmmc_controller_init(struct nclmmc_host *host)
 {
-	int ret;
-
-	if (!IS_ERR(host->rstc)) {
-		ret = reset_control_assert(host->rstc);
-		if (!ret) {
-			usleep_range(1000, 1250);
-			ret = reset_control_deassert(host->rstc);
-		}
-	}
+	u32 val;
 
 	writel(0xffffffff, host->base + SDIO_DATA_TIMEOUT_CNT);
 	writel(0xffff, host->base + SDIO_CMD_WAIT_RSP_CNT);
 	writel(0xffff, host->base + SDIO_CMD_WAIT_EOT_CNT);
 	writel(0, host->base + SDIO_IE);
+
+	val = readl(host->base + SDIO_CR);
+	val &= ~SDIO_CR_RST_MODE;
+	val |= SDIO_CR_RST_MODE_PWR_ON << SDIO_CR_RST_MODE_OFFSET;
+	writel(val, host->base + SDIO_CR);
 }
 
 /*
@@ -408,7 +396,7 @@ static void nclmmc_finish_request(struct nclmmc_host *host, struct mmc_request *
 				virt_addr = sg_virt(host->cur_sg) + host->sg_offset;
 				cur_sg_len = host->cur_sg->length - host->sg_offset;
 				if (cur_sg_len & 0x3)
-					printk(KERN_ERR"rx sg is not 4 byte aliged");
+					pr_err("rx sg is not 4 byte aliged");
 				if (len > cur_sg_len) {
 					for(i = 0; i < cur_sg_len; i+=4) {
 						if (rx_watermark == 0)
@@ -460,7 +448,7 @@ static void nclmmc_finish_request(struct nclmmc_host *host, struct mmc_request *
 				virt_addr = sg_virt(host->cur_sg) + host->sg_offset;
 				cur_sg_len = host->cur_sg->length - host->sg_offset;
 				if (cur_sg_len & 0x3)
-					printk(KERN_ERR"tx sg is not 4 byte aliged");
+					pr_err("tx sg is not 4 byte aliged");
 				if (len > cur_sg_len) {
 					for(i = 0; i < cur_sg_len; i+=4)
 						writel(*virt_addr++, host->base + SDIO_TX_DATA);
@@ -615,12 +603,27 @@ static int nclmmc_drv_probe(struct platform_device *pdev)
 	if (IS_ERR(host->base))
 		return PTR_ERR(host->base);
 
-	host->clk = devm_clk_get(&pdev->dev, "sdio_data_clk");
-	if (IS_ERR(host->clk))
-		return dev_err_probe(&pdev->dev, PTR_ERR(host->clk), "clk get fail\n");
+	host->apb_clk = devm_clk_get(&pdev->dev, "apb");
+	if (IS_ERR(host->apb_clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(host->apb_clk), "apb clk get fail\n");
+	host->kern_clk = devm_clk_get(&pdev->dev, "kern");
+	if (IS_ERR(host->kern_clk))
+		return dev_err_probe(&pdev->dev, PTR_ERR(host->kern_clk), "kern clk get fail\n");
+
+	ret = clk_prepare_enable(host->apb_clk);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret, "failed to enable apb clk\n");
+
+	ret = clk_prepare_enable(host->kern_clk);
+	if (ret)
+		return dev_err_probe(&pdev->dev, ret, "failed to enable kern clk\n");
 
 	host->rstc = devm_reset_control_get_exclusive(&pdev->dev, NULL);
-
+	if (!IS_ERR(host->rstc)) {
+		reset_control_assert(host->rstc);
+		udelay(2);
+		reset_control_deassert(host->rstc);
+	}
 	host->irq = platform_get_irq(pdev, 0);
 	if (host->irq < 0)
 		return host->irq;
@@ -630,10 +633,6 @@ static int nclmmc_drv_probe(struct platform_device *pdev)
 			NULL, host);
 	if (ret)
 		return ret;
-
-	ret = clk_prepare_enable(host->clk);
-	if (ret)
-		return dev_err_probe(&pdev->dev, ret, "failed to enable clk\n");
 
 	ret = mmc_of_parse(mmc);
 	if (ret)
@@ -660,7 +659,8 @@ static int nclmmc_drv_probe(struct platform_device *pdev)
 	return 0;
 
 clk_disable:
-	clk_disable_unprepare(host->clk);
+	clk_disable_unprepare(host->kern_clk);
+	clk_disable_unprepare(host->apb_clk);
 	return ret;
 }
 
@@ -669,7 +669,8 @@ static void nclmmc_drv_remove(struct platform_device *dev)
 	struct nclmmc_host *host = platform_get_drvdata(dev);
 
 	mmc_remove_host(host->mmc);
-	clk_disable_unprepare(host->clk);
+	clk_disable_unprepare(host->kern_clk);
+	clk_disable_unprepare(host->apb_clk);
 }
 
 static const struct of_device_id nclmmc_of_table[] = {
