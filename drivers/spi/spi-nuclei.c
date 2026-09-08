@@ -16,6 +16,8 @@
 #include <linux/io.h>
 #include <linux/log2.h>
 #include <linux/dmaengine.h>
+#include <linux/reset.h>
+#include <linux/delay.h>
 
 #define NUCLEI_SPI_DEBUG(arg...)
 
@@ -130,7 +132,8 @@ struct nuclei_spi {
 	void __iomem      *regs;        /* virt. address of control registers */
 	u32     version;
 	u32     feature;
-	struct clk        *clk;         /* bus clock */
+	struct clk        *apb_clk;         /* bus clock */
+	struct clk        *kern_clk;         /* kernel clock */
 	unsigned int      fifo_depth;   /* fifo depth in words */
 	u32               cs_inactive;  /* level of the CS pins when inactive */
 	struct completion done;         /* wake-up from interrupt */
@@ -231,7 +234,7 @@ nuclei_spi_prep_transfer(struct nuclei_spi *spi, struct spi_device *device,
 	unsigned int mode;
 
 	/* Calculate and program the clock rate */
-	cr = DIV_ROUND_UP(clk_get_rate(spi->clk) >> 1, t->speed_hz) - 1;
+	cr = DIV_ROUND_UP(clk_get_rate(spi->kern_clk) >> 1, t->speed_hz) - 1;
 	cr &= NUCLEI_SPI_SCKDIV_DIV_MASK;
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_SCKDIV, cr);
 
@@ -603,6 +606,7 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	u32 cs_bits, max_bits_per_word;
 	struct spi_master *master;
 	struct resource *res;
+	struct reset_control *rst;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(struct nuclei_spi));
 	if (!master) {
@@ -621,10 +625,17 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	}
 	spi->phys_addr = (dma_addr_t)res->start;
 
-	spi->clk = devm_clk_get(&pdev->dev, NULL);
-	if (IS_ERR(spi->clk)) {
-		dev_err(&pdev->dev, "Unable to find bus clock\n");
-		ret = PTR_ERR(spi->clk);
+	spi->apb_clk = devm_clk_get(&pdev->dev, "apb");
+	if (IS_ERR(spi->apb_clk)) {
+		dev_err(&pdev->dev, "Unable to find apb clock\n");
+		ret = PTR_ERR(spi->apb_clk);
+		goto put_master;
+	}
+
+	spi->kern_clk = devm_clk_get(&pdev->dev, "kern");
+	if (IS_ERR(spi->kern_clk)) {
+		dev_err(&pdev->dev, "Unable to find kernel clock\n");
+		ret = PTR_ERR(spi->kern_clk);
 		goto put_master;
 	}
 
@@ -652,11 +663,27 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	}
 
 	/* Spin up the bus clock before hitting registers */
-	ret = clk_prepare_enable(spi->clk);
+	ret = clk_prepare_enable(spi->apb_clk);
 	if (ret) {
-		dev_err(&pdev->dev, "Unable to enable bus clock\n");
+		dev_err(&pdev->dev, "Unable to enable apb clock\n");
 		goto put_master;
 	}
+
+	ret = clk_prepare_enable(spi->kern_clk);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to enable kernel clock\n");
+		goto disable_apb_clk;
+	}
+
+	rst = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+	if (IS_ERR(rst)) {
+		ret = dev_err_probe(&pdev->dev, PTR_ERR(rst),
+				    "Error: Missing reset ctrl\n");
+		goto disable_clk;
+	}
+	reset_control_assert(rst);
+	udelay(2);
+	reset_control_deassert(rst);
 
 	/* probe the number of CS lines */
 	spi->cs_inactive = nuclei_spi_read(spi, NUCLEI_SPI_REG_CSDEF);
@@ -737,7 +764,9 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	return 0;
 
 disable_clk:
-	clk_disable_unprepare(spi->clk);
+	clk_disable_unprepare(spi->kern_clk);
+disable_apb_clk:
+	clk_disable_unprepare(spi->apb_clk);
 put_master:
 	spi_master_put(master);
 
@@ -751,7 +780,8 @@ static int nuclei_spi_remove(struct platform_device *pdev)
 
 	/* Disable all the interrupts just in case */
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_IE, 0);
-	clk_disable_unprepare(spi->clk);
+	clk_disable_unprepare(spi->kern_clk);
+	clk_disable_unprepare(spi->apb_clk);
 
 	return 0;
 }
