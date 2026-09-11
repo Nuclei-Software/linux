@@ -126,6 +126,7 @@
 #define NUCLEI_SPI_CR_DMA_EN             BIT(1)
 #define NUCLEI_SPI_CR_TXDMA_EN           BIT(8)
 #define NUCLEI_SPI_CR_RXDMA_EN           BIT(9)
+#define NUCLEI_SPI_CR_RX_FIFO_EN         BIT(13)
 
 
 struct nuclei_spi {
@@ -255,8 +256,16 @@ nuclei_spi_prep_transfer(struct nuclei_spi *spi, struct spi_device *device,
 	}
 	if (device->mode & SPI_LSB_FIRST)
 		cr |= NUCLEI_SPI_FMT_ENDIAN;
-	if (!t->rx_buf)
+	if (!t->rx_buf) {
 		cr |= NUCLEI_SPI_FMT_DIR;
+		u32 val = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+		val &= ~NUCLEI_SPI_CR_RX_FIFO_EN;
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, val);
+	} else {
+		u32 val = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+		val |= NUCLEI_SPI_CR_RX_FIFO_EN;
+		nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, val);
+	}
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_FMT, cr);
 
 	/* We will want to poll if the time we need to wait is
@@ -575,6 +584,10 @@ nuclei_spi_transfer_one_irq(struct spi_master *master, struct spi_device *device
 		} else {
 			/* Wait for transmission to complete */
 			nuclei_spi_wait(spi, NUCLEI_SPI_IP_TXWM, poll);
+			while (nuclei_spi_read(spi, NUCLEI_SPI_REG_STATUS) &
+				NUCLEI_SPI_STATUS_BUSY_FLAG) {
+				cpu_relax();
+			}
 		}
 
 		remaining_words -= n_words;
@@ -639,6 +652,28 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 		goto put_master;
 	}
 
+	ret = clk_prepare_enable(spi->apb_clk);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to enable apb clock\n");
+		goto put_master;
+	}
+
+	ret = clk_prepare_enable(spi->kern_clk);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to enable kernel clock\n");
+		goto disable_apb_clk;
+	}
+
+	rst = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+	if (IS_ERR(rst)) {
+		dev_dbg(&pdev->dev, "Reset control not found\n");
+	} else {
+		dev_dbg(&pdev->dev, "Reset control found\n");
+		reset_control_assert(rst);
+		udelay(2);
+		reset_control_deassert(rst);
+	}
+
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		ret = irq;
@@ -659,31 +694,8 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	if (!ret && max_bits_per_word < 8) {
 		dev_err(&pdev->dev, "Only 8bit SPI words supported by the driver\n");
 		ret = -EINVAL;
-		goto put_master;
-	}
-
-	/* Spin up the bus clock before hitting registers */
-	ret = clk_prepare_enable(spi->apb_clk);
-	if (ret) {
-		dev_err(&pdev->dev, "Unable to enable apb clock\n");
-		goto put_master;
-	}
-
-	ret = clk_prepare_enable(spi->kern_clk);
-	if (ret) {
-		dev_err(&pdev->dev, "Unable to enable kernel clock\n");
-		goto disable_apb_clk;
-	}
-
-	rst = devm_reset_control_get_exclusive(&pdev->dev, NULL);
-	if (IS_ERR(rst)) {
-		ret = dev_err_probe(&pdev->dev, PTR_ERR(rst),
-				    "Error: Missing reset ctrl\n");
 		goto disable_clk;
 	}
-	reset_control_assert(rst);
-	udelay(2);
-	reset_control_deassert(rst);
 
 	/* probe the number of CS lines */
 	spi->cs_inactive = nuclei_spi_read(spi, NUCLEI_SPI_REG_CSDEF);
