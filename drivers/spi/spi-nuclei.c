@@ -18,6 +18,7 @@
 #include <linux/dmaengine.h>
 #include <linux/reset.h>
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
 
 #define NUCLEI_SPI_DEBUG(arg...)
 
@@ -128,6 +129,8 @@
 #define NUCLEI_SPI_CR_RXDMA_EN           BIT(9)
 #define NUCLEI_SPI_CR_RX_FIFO_EN         BIT(13)
 
+#define NUCLEI_DMA_TX   BIT(0)
+#define NUCLEI_DMA_RX   BIT(1)
 
 struct nuclei_spi {
 	void __iomem      *regs;        /* virt. address of control registers */
@@ -138,8 +141,9 @@ struct nuclei_spi {
 	unsigned int      fifo_depth;   /* fifo depth in words */
 	u32               cs_inactive;  /* level of the CS pins when inactive */
 	struct completion done;         /* wake-up from interrupt */
-	u32 cur_usedma;
-	dma_addr_t phys_addr;
+	bool cur_usedma;
+	dma_addr_t        phys_addr;
+	atomic_t          dma_state;
 };
 
 static void nuclei_spi_write(struct nuclei_spi *spi, int offset, u32 value)
@@ -367,19 +371,22 @@ static void nuclei_spi_dma_rxcb(void *data)
 {
 	struct spi_controller *ctlr = data;
 	struct nuclei_spi *spi = spi_controller_get_devdata(ctlr);
+	int state = atomic_fetch_andnot(NUCLEI_DMA_RX, &spi->dma_state);
 	u32 cr;
-
-	/* Disable SPI DMA */
-	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
-	cr &= ~NUCLEI_SPI_CR_DMA_EN;
-	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
 
 	/* Disable Rx DMA request */
 	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
 	cr &= ~NUCLEI_SPI_CR_RXDMA_EN;
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
 
+	if (state & NUCLEI_DMA_TX)
+		return;
+
 	NUCLEI_SPI_DEBUG("rxcb\n");
+	/* Disable SPI DMA */
+	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+	cr &= ~NUCLEI_SPI_CR_DMA_EN;
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
 	spi_finalize_current_transfer(ctlr);
 }
 
@@ -387,20 +394,17 @@ static void nuclei_spi_dma_txcb(void *data)
 {
 	struct spi_controller *ctlr = data;
 	struct nuclei_spi *spi = spi_controller_get_devdata(ctlr);
-	int status;
+	int state = atomic_fetch_andnot(NUCLEI_DMA_TX, &spi->dma_state);
 	u32 cr;
+	int timeout = 1000;
 
 	/* Wait until the FIFO data completely. */
 	do {
-		status = nuclei_spi_read(spi, NUCLEI_SPI_REG_STATUS);
-	} while((status & BIT(13)) == 0);
-	status |= BIT(13);
-	nuclei_spi_write(spi, NUCLEI_SPI_REG_STATUS, status);
-
-	/* Disable SPI DMA */
-	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
-	cr &= ~NUCLEI_SPI_CR_DMA_EN;
-	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+		cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_STATUS);
+		if (cr & NUCLEI_SPI_STATUS_BUSY_FLAG)
+			break;
+		udelay(1);
+	} while (--timeout);
 
 	/* Disable Tx DMA request */
 	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
@@ -409,9 +413,14 @@ static void nuclei_spi_dma_txcb(void *data)
 
 	NUCLEI_SPI_DEBUG("txcb\n");
 
-	/* when rx dma enable, let rxcb to wake up */
-	if (!(cr & NUCLEI_SPI_CR_RXDMA_EN))
-		spi_finalize_current_transfer(ctlr);
+	if (state & NUCLEI_DMA_RX)
+		return;
+
+	/* Disable SPI DMA */
+	cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
+	cr &= ~NUCLEI_SPI_CR_DMA_EN;
+	nuclei_spi_write(spi, NUCLEI_SPI_REG_CR, cr);
+	spi_finalize_current_transfer(ctlr);
 }
 
 static bool nuclei_spi_can_dma(struct spi_controller *ctlr,
@@ -421,11 +430,11 @@ static bool nuclei_spi_can_dma(struct spi_controller *ctlr,
 	struct nuclei_spi *spi = spi_controller_get_devdata(ctlr);
 	unsigned int bytes_per_word = 1;
 
-	if (bytes_per_word <= 8)
+	if (xfer->bits_per_word <= 8)
 		bytes_per_word = 1;
-	else if (bytes_per_word <= 16)
+	else if (xfer->bits_per_word <= 16)
 		bytes_per_word = 2;
-	else if (bytes_per_word <= 32)
+	else if (xfer->bits_per_word <= 32)
 		bytes_per_word = 4;
 
 	return xfer->len / bytes_per_word > spi->fifo_depth;
@@ -440,6 +449,8 @@ nuclei_spi_transfer_one_dma(struct spi_master *master, struct spi_device *device
 	u32 cr, width;
 
 	nuclei_spi_prep_transfer(spi, device, t);
+
+	atomic_set(&spi->dma_state, 0);
 
 	width = DMA_SLAVE_BUSWIDTH_1_BYTE;
 	if (t-> bits_per_word <= 8)
@@ -462,7 +473,6 @@ nuclei_spi_transfer_one_dma(struct spi_master *master, struct spi_device *device
 		};
 		dmaengine_slave_config(master->dma_tx, &tx_dma_conf);
 
-		nuclei_spi_write(spi, NUCLEI_SPI_REG_TXSIZE, t->len);
 		tx_dma_desc = dmaengine_prep_slave_sg(
 					master->dma_tx, t->tx_sg.sgl,
 					t->tx_sg.nents,
@@ -480,8 +490,6 @@ nuclei_spi_transfer_one_dma(struct spi_master *master, struct spi_device *device
 		};
 
 		dmaengine_slave_config(master->dma_rx, &rx_dma_conf);
-
-		nuclei_spi_write(spi, NUCLEI_SPI_REG_RXSIZE, t->len);
 
 		/* Enable Rx DMA request */
 		cr = nuclei_spi_read(spi, NUCLEI_SPI_REG_CR);
@@ -502,6 +510,7 @@ nuclei_spi_transfer_one_dma(struct spi_master *master, struct spi_device *device
 		if (dma_submit_error(dmaengine_submit(tx_dma_desc))) {
 			goto dma_submit_error;
 		}
+		atomic_or(NUCLEI_DMA_TX, &spi->dma_state);
 		/* Enable Tx DMA channel */
 		dma_async_issue_pending(master->dma_tx);
 
@@ -518,6 +527,7 @@ nuclei_spi_transfer_one_dma(struct spi_master *master, struct spi_device *device
 		if (dma_submit_error(dmaengine_submit(rx_dma_desc))) {
 			goto dma_desc_error;
 		}
+		atomic_or(NUCLEI_DMA_RX, &spi->dma_state);
 		/* Enable Rx DMA channel */
 		dma_async_issue_pending(master->dma_rx);
 	}
@@ -733,7 +743,11 @@ static int nuclei_spi_probe(struct platform_device *pdev)
 	master->set_cs = nuclei_spi_set_cs;
 	master->transfer_one = nuclei_spi_transfer_one;
 
-	pdev->dev.dma_mask = NULL;
+	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to set DMA mask\n");
+		goto disable_clk;
+	}
 
     /* probe nuclei spi features */
     nuclei_spi_prope_feature(spi);
@@ -792,6 +806,10 @@ static int nuclei_spi_remove(struct platform_device *pdev)
 
 	/* Disable all the interrupts just in case */
 	nuclei_spi_write(spi, NUCLEI_SPI_REG_IE, 0);
+	if (master->dma_tx)
+		dma_release_channel(master->dma_tx);
+	if (master->dma_rx)
+		dma_release_channel(master->dma_rx);
 	clk_disable_unprepare(spi->kern_clk);
 	clk_disable_unprepare(spi->apb_clk);
 
