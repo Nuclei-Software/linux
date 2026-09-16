@@ -89,7 +89,6 @@
 #define NUCLEI_MAX_BURST 16
 
 typedef struct {
-	uint8_t ctrl_id;        /* 0: ACC_UDMA0, 1: ACC_UDMA1 */
 	uint8_t phy_chan_id;    /* physic channel id */
 	uint16_t periph_sel;    /* peripheral select value per channel */
 } dma_chan_info_t;
@@ -258,447 +257,152 @@ enum {
 	DMA_U0_TIM7_CC3 = 101,
 	DMA_U0_TIM7_CC4 = 102,
 
-	/* ========== ACC_UDMA1 mem2mem channel ========== */
 	DMA_U0_MAX_REQ_ID = 103,
-	DMA_U1_MEM2MEM_0 = DMA_U0_MAX_REQ_ID,
-	DMA_U1_MEM2MEM_1 = 104,
+};
+
+enum {
+	/* ========== ACC_UDMA1 mem2mem channel ========== */
+	DMA_U1_MEM2MEM_0 = 0,
+	DMA_U1_MEM2MEM_1 = 1,
 
 	/* ========== ACC_UDMA1 periph channel========== */
 	/* USART7 */
-	DMA_U1_USART7_TX = 105,
-	DMA_U1_USART7_RX = 106,
+	DMA_U1_USART7_TX = 2,
+	DMA_U1_USART7_RX = 3,
 
 	/* USART8 */
-	DMA_U1_USART8_TX = 107,
-	DMA_U1_USART8_RX = 108,
+	DMA_U1_USART8_TX = 4,
+	DMA_U1_USART8_RX = 5,
 
 	/* USART9 */
-	DMA_U1_USART9_TX = 109,
-	DMA_U1_USART9_RX = 110,
+	DMA_U1_USART9_TX = 6,
+	DMA_U1_USART9_RX = 7,
 
 	/* USART10 */
-	DMA_U1_USART10_TX = 111,
-	DMA_U1_USART10_RX = 112,
+	DMA_U1_USART10_TX = 8,
+	DMA_U1_USART10_RX = 9,
 
 	/* USART11 */
-	DMA_U1_USART11_TX = 113,
-	DMA_U1_USART11_RX = 114,
+	DMA_U1_USART11_TX = 10,
+	DMA_U1_USART11_RX = 11,
 
 	/* USART12 */
-	DMA_U1_USART12_TX = 115,
-	DMA_U1_USART12_RX = 116,
+	DMA_U1_USART12_TX = 12,
+	DMA_U1_USART12_RX = 13,
 
 	/* I2C2 */
-	DMA_U1_I2C2_TX = 117,
-	DMA_U1_I2C2_RX = 118,
+	DMA_U1_I2C2_TX = 14,
+	DMA_U1_I2C2_RX = 15,
 
 	/* I2C3 */
-	DMA_U1_I2C3_TX = 119,
-	DMA_U1_I2C3_RX = 120,
+	DMA_U1_I2C3_TX = 16,
+	DMA_U1_I2C3_RX = 17,
 
 	/* QSPI4 */
-	DMA_U1_QSPI4_TX = 121,
-	DMA_U1_QSPI4_RX = 122,
+	DMA_U1_QSPI4_TX = 18,
+	DMA_U1_QSPI4_RX = 19,
 
 	/* QSPI5 */
-	DMA_U1_QSPI5_TX = 123,
-	DMA_U1_QSPI5_RX = 124,
+	DMA_U1_QSPI5_TX = 20,
+	DMA_U1_QSPI5_RX = 21,
 
 	/* QSPI6 */
-	DMA_U1_QSPI6_TX = 125,
-	DMA_U1_QSPI6_RX = 126,
+	DMA_U1_QSPI6_TX = 22,
+	DMA_U1_QSPI6_RX = 23,
 
 	/* SAI0 - SAI2/SAI3 */
-	DMA_U1_SAI2_A_TX = 127,
-	DMA_U1_SAI2_B_TX = 128,
-	DMA_U1_SAI3_A_TX = 129,
-	DMA_U1_SAI3_B_TX = 130,
-	DMA_U1_SAI2_A_RX = 131,
-	DMA_U1_SAI2_B_RX = 132,
-	DMA_U1_SAI3_A_RX = 133,
-	DMA_U1_SAI3_B_RX = 134,
+	DMA_U1_SAI2_A_TX = 24,
+	DMA_U1_SAI2_B_TX = 25,
+	DMA_U1_SAI3_A_TX = 26,
+	DMA_U1_SAI3_B_TX = 27,
+	DMA_U1_SAI2_A_RX = 28,
+	DMA_U1_SAI2_B_RX = 29,
+	DMA_U1_SAI3_A_RX = 30,
+	DMA_U1_SAI3_B_RX = 31,
 
 	/* ADC */
-	DMA_U1_ADC0 = 135,
-	DMA_U1_ADC1 = 136,
-	DMA_U1_ADC2 = 137,
+	DMA_U1_ADC0 = 32,
+	DMA_U1_ADC1 = 33,
+	DMA_U1_ADC2 = 34,
 
 	/* DFSDM0 */
-	DMA_U1_DFSDM0_DMA3 = 138,
-	DMA_U1_DFSDM0_DMA4 = 139,
-	DMA_U1_DFSDM0_DMA5 = 140,
+	DMA_U1_DFSDM0_DMA3 = 35,
+	DMA_U1_DFSDM0_DMA4 = 36,
+	DMA_U1_DFSDM0_DMA5 = 37,
 
 	/* Advanced Timer 8 */
-	DMA_U1_TIM8_COM = 141,
-	DMA_U1_TIM8_TRG = 142,
-	DMA_U1_TIM8_UEV = 143,
-	DMA_U1_TIM8_CC1 = 144,
-	DMA_U1_TIM8_CC2 = 145,
-	DMA_U1_TIM8_CC3 = 146,
-	DMA_U1_TIM8_CC4 = 147,
+	DMA_U1_TIM8_COM = 38,
+	DMA_U1_TIM8_TRG = 39,
+	DMA_U1_TIM8_UEV = 40,
+	DMA_U1_TIM8_CC1 = 41,
+	DMA_U1_TIM8_CC2 = 42,
+	DMA_U1_TIM8_CC3 = 43,
+	DMA_U1_TIM8_CC4 = 44,
 
 	/* Advanced Timer 9 */
-	DMA_U1_TIM9_COM = 148,
-	DMA_U1_TIM9_TRG = 149,
-	DMA_U1_TIM9_UEV = 150,
-	DMA_U1_TIM9_CC1 = 151,
-	DMA_U1_TIM9_CC2 = 152,
-	DMA_U1_TIM9_CC3 = 153,
-	DMA_U1_TIM9_CC4 = 154,
+	DMA_U1_TIM9_COM = 45,
+	DMA_U1_TIM9_TRG = 46,
+	DMA_U1_TIM9_UEV = 47,
+	DMA_U1_TIM9_CC1 = 48,
+	DMA_U1_TIM9_CC2 = 49,
+	DMA_U1_TIM9_CC3 = 50,
+	DMA_U1_TIM9_CC4 = 51,
 
 	/* Advanced Timer 10 */
-	DMA_U1_TIM10_COM = 155,
-	DMA_U1_TIM10_TRG = 156,
-	DMA_U1_TIM10_UEV = 157,
-	DMA_U1_TIM10_CC1 = 158,
-	DMA_U1_TIM10_CC2 = 159,
-	DMA_U1_TIM10_CC3 = 160,
-	DMA_U1_TIM10_CC4 = 161,
+	DMA_U1_TIM10_COM = 52,
+	DMA_U1_TIM10_TRG = 53,
+	DMA_U1_TIM10_UEV = 54,
+	DMA_U1_TIM10_CC1 = 55,
+	DMA_U1_TIM10_CC2 = 56,
+	DMA_U1_TIM10_CC3 = 57,
+	DMA_U1_TIM10_CC4 = 58,
 
 	/* Advanced Timer 11 */
-	DMA_U1_TIM11_COM = 162,
-	DMA_U1_TIM11_TRG = 163,
-	DMA_U1_TIM11_UEV = 164,
-	DMA_U1_TIM11_CC1 = 165,
-	DMA_U1_TIM11_CC2 = 166,
-	DMA_U1_TIM11_CC3 = 167,
-	DMA_U1_TIM11_CC4 = 168,
+	DMA_U1_TIM11_COM = 59,
+	DMA_U1_TIM11_TRG = 60,
+	DMA_U1_TIM11_UEV = 61,
+	DMA_U1_TIM11_CC1 = 62,
+	DMA_U1_TIM11_CC2 = 63,
+	DMA_U1_TIM11_CC3 = 64,
+	DMA_U1_TIM11_CC4 = 65,
 
 	/* Advanced Timer 12 */
-	DMA_U1_TIM12_COM = 169,
-	DMA_U1_TIM12_TRG = 170,
-	DMA_U1_TIM12_UEV = 171,
-	DMA_U1_TIM12_CC1 = 172,
-	DMA_U1_TIM12_CC2 = 173,
-	DMA_U1_TIM12_CC3 = 174,
-	DMA_U1_TIM12_CC4 = 175,
+	DMA_U1_TIM12_COM = 66,
+	DMA_U1_TIM12_TRG = 67,
+	DMA_U1_TIM12_UEV = 68,
+	DMA_U1_TIM12_CC1 = 69,
+	DMA_U1_TIM12_CC2 = 70,
+	DMA_U1_TIM12_CC3 = 71,
+	DMA_U1_TIM12_CC4 = 72,
 
 	/* Advanced Timer 13 */
-	DMA_U1_TIM13_COM = 176,
-	DMA_U1_TIM13_TRG = 177,
-	DMA_U1_TIM13_UEV = 178,
-	DMA_U1_TIM13_CC1 = 179,
-	DMA_U1_TIM13_CC2 = 180,
-	DMA_U1_TIM13_CC3 = 181,
-	DMA_U1_TIM13_CC4 = 182,
+	DMA_U1_TIM13_COM = 73,
+	DMA_U1_TIM13_TRG = 74,
+	DMA_U1_TIM13_UEV = 75,
+	DMA_U1_TIM13_CC1 = 76,
+	DMA_U1_TIM13_CC2 = 77,
+	DMA_U1_TIM13_CC3 = 78,
+	DMA_U1_TIM13_CC4 = 79,
 
 	/* Advanced Timer 14 */
-	DMA_U1_TIM14_COM = 183,
-	DMA_U1_TIM14_TRG = 184,
-	DMA_U1_TIM14_UEV = 185,
-	DMA_U1_TIM14_CC1 = 186,
-	DMA_U1_TIM14_CC2 = 187,
-	DMA_U1_TIM14_CC3 = 188,
-	DMA_U1_TIM14_CC4 = 189,
+	DMA_U1_TIM14_COM = 80,
+	DMA_U1_TIM14_TRG = 81,
+	DMA_U1_TIM14_UEV = 82,
+	DMA_U1_TIM14_CC1 = 83,
+	DMA_U1_TIM14_CC2 = 84,
+	DMA_U1_TIM14_CC3 = 85,
+	DMA_U1_TIM14_CC4 = 86,
 
 	/* Advanced Timer 15 */
-	DMA_U1_TIM15_COM = 190,
-	DMA_U1_TIM15_TRG = 191,
-	DMA_U1_TIM15_UEV = 192,
-	DMA_U1_TIM15_CC1 = 193,
-	DMA_U1_TIM15_CC2 = 194,
-	DMA_U1_TIM15_CC3 = 195,
-	DMA_U1_TIM15_CC4 = 196,
+	DMA_U1_TIM15_COM = 87,
+	DMA_U1_TIM15_TRG = 88,
+	DMA_U1_TIM15_UEV = 89,
+	DMA_U1_TIM15_CC1 = 90,
+	DMA_U1_TIM15_CC2 = 91,
+	DMA_U1_TIM15_CC3 = 92,
+	DMA_U1_TIM15_CC4 = 93,
 
-	DMA_MAX_REQ_ID = 197,
-};
-
-/*******************************************************************************
- * DMA channel info mapping table
- ******************************************************************************/
-static const dma_chan_info_t dma_chan_info_tab[DMA_MAX_REQ_ID] = {
-	/* ========== ACC_UDMA0 (ctrl_id = 0) ========== */
-	/* USART0 */
-	[DMA_U0_USART0_TX] = {.phy_chan_id = 0, .periph_sel = 0, .ctrl_id = 0},
-	[DMA_U0_USART0_RX] = {.phy_chan_id = 1, .periph_sel = 8, .ctrl_id = 0},
-
-	/* USART1 */
-	[DMA_U0_USART1_TX] = {.phy_chan_id = 2, .periph_sel = 1, .ctrl_id = 0},
-	[DMA_U0_USART1_RX] = {.phy_chan_id = 3, .periph_sel = 9, .ctrl_id = 0},
-
-	/* USART2 */
-	[DMA_U0_USART2_TX] = {.phy_chan_id = 0, .periph_sel = 2, .ctrl_id = 0},
-	[DMA_U0_USART2_RX] = {.phy_chan_id = 1, .periph_sel = 10, .ctrl_id = 0},
-
-	/* USART3 */
-	[DMA_U0_USART3_TX] = {.phy_chan_id = 2, .periph_sel = 3, .ctrl_id = 0},
-	[DMA_U0_USART3_RX] = {.phy_chan_id = 3, .periph_sel = 11, .ctrl_id = 0},
-
-	/* USART4 */
-	[DMA_U0_USART4_TX] = {.phy_chan_id = 0, .periph_sel = 4, .ctrl_id = 0},
-	[DMA_U0_USART4_RX] = {.phy_chan_id = 1, .periph_sel = 12, .ctrl_id = 0},
-
-	/* USART5 */
-	[DMA_U0_USART5_TX] = {.phy_chan_id = 2, .periph_sel = 5, .ctrl_id = 0},
-	[DMA_U0_USART5_RX] = {.phy_chan_id = 3, .periph_sel = 13, .ctrl_id = 0},
-
-	/* USART6 */
-	[DMA_U0_USART6_TX] = {.phy_chan_id = 0, .periph_sel = 6, .ctrl_id = 0},
-	[DMA_U0_USART6_RX] = {.phy_chan_id = 1, .periph_sel = 14, .ctrl_id = 0},
-
-	/* I2C0 */
-	[DMA_U0_I2C0_TX] = {.phy_chan_id = 2, .periph_sel = 16, .ctrl_id = 0},
-	[DMA_U0_I2C0_RX] = {.phy_chan_id = 3, .periph_sel = 24, .ctrl_id = 0},
-
-	/* I2C1 */
-	[DMA_U0_I2C1_TX] = {.phy_chan_id = 4, .periph_sel = 17, .ctrl_id = 0},
-	[DMA_U0_I2C1_RX] = {.phy_chan_id = 5, .periph_sel = 25, .ctrl_id = 0},
-
-	/* QSPI XIP0 */
-	[DMA_U0_QSPI_XIP0_TX] = {.phy_chan_id = 2, .periph_sel = 18, .ctrl_id = 0},
-	[DMA_U0_QSPI_XIP0_RX] = {.phy_chan_id = 3, .periph_sel = 26, .ctrl_id = 0},
-
-	/* QSPI XIP1 */
-	[DMA_U0_QSPI_XIP1_TX] = {.phy_chan_id = 2, .periph_sel = 19, .ctrl_id = 0},
-	[DMA_U0_QSPI_XIP1_RX] = {.phy_chan_id = 3, .periph_sel = 27, .ctrl_id = 0},
-
-	/* QSPI XIP2 */
-	[DMA_U0_QSPI_XIP2_TX] = {.phy_chan_id = 2, .periph_sel = 20, .ctrl_id = 0},
-	[DMA_U0_QSPI_XIP2_RX] = {.phy_chan_id = 3, .periph_sel = 28, .ctrl_id = 0},
-
-	/* QSPI3 */
-	[DMA_U0_QSPI3_TX] = {.phy_chan_id = 4, .periph_sel = 23, .ctrl_id = 0},
-	[DMA_U0_QSPI3_RX] = {.phy_chan_id = 5, .periph_sel = 31, .ctrl_id = 0},
-
-	/* DAC */
-	[DMA_U0_DAC_CH1] = {.phy_chan_id = 2, .periph_sel = 21, .ctrl_id = 0},
-	[DMA_U0_DAC_CH2] = {.phy_chan_id = 3, .periph_sel = 29, .ctrl_id = 0},
-
-	/* DFSDM0 */
-	[DMA_U0_DFSDM0_DMA0] = {.phy_chan_id = 2, .periph_sel = 22, .ctrl_id = 0},
-	[DMA_U0_DFSDM0_DMA1] = {.phy_chan_id = 3, .periph_sel = 30, .ctrl_id = 0},
-	[DMA_U0_DFSDM0_DMA2] = {.phy_chan_id = 12, .periph_sel = 96, .ctrl_id = 0},
-
-	/* SAI0 */
-	[DMA_U0_SAI0_A_TX] = {.phy_chan_id = 4, .periph_sel = 32, .ctrl_id = 0},
-	[DMA_U0_SAI0_B_TX] = {.phy_chan_id = 4, .periph_sel = 33, .ctrl_id = 0},
-	[DMA_U0_SAI1_A_TX] = {.phy_chan_id = 4, .periph_sel = 34, .ctrl_id = 0},
-	[DMA_U0_SAI1_B_TX] = {.phy_chan_id = 4, .periph_sel = 35, .ctrl_id = 0},
-	[DMA_U0_SAI0_A_RX] = {.phy_chan_id = 12, .periph_sel = 100, .ctrl_id = 0},
-	[DMA_U0_SAI0_B_RX] = {.phy_chan_id = 12, .periph_sel = 101, .ctrl_id = 0},
-	[DMA_U0_SAI1_A_RX] = {.phy_chan_id = 12, .periph_sel = 102, .ctrl_id = 0},
-	[DMA_U0_SAI1_B_RX] = {.phy_chan_id = 12, .periph_sel = 103, .ctrl_id = 0},
-
-	/* CORDIC0 */
-	[DMA_U0_CORDIC0_TX] = {.phy_chan_id = 4, .periph_sel = 36, .ctrl_id = 0},
-	[DMA_U0_CORDIC0_RX] = {.phy_chan_id = 12, .periph_sel = 97, .ctrl_id = 0},
-
-	/* SWPMI0 */
-	[DMA_U0_SWPMI0_TX] = {.phy_chan_id = 4, .periph_sel = 37, .ctrl_id = 0},
-	[DMA_U0_SWPMI0_RX] = {.phy_chan_id = 12, .periph_sel = 98, .ctrl_id = 0},
-
-	/* SPDIFRX0 */
-	[DMA_U0_SPDIFRX0_CTRL] = {.phy_chan_id = 4, .periph_sel = 38, .ctrl_id = 0},
-	[DMA_U0_SPDIFRX0_DAT] = {.phy_chan_id = 12, .periph_sel = 99, .ctrl_id = 0},
-
-	/* Advanced Timer 0 */
-	[DMA_U0_TIM0_COM] = {.phy_chan_id = 5, .periph_sel = 40, .ctrl_id = 0},
-	[DMA_U0_TIM0_TRG] = {.phy_chan_id = 6, .periph_sel = 48, .ctrl_id = 0},
-	[DMA_U0_TIM0_UEV] = {.phy_chan_id = 7, .periph_sel = 56, .ctrl_id = 0},
-	[DMA_U0_TIM0_CC1] = {.phy_chan_id = 8, .periph_sel = 64, .ctrl_id = 0},
-	[DMA_U0_TIM0_CC2] = {.phy_chan_id = 9, .periph_sel = 72, .ctrl_id = 0},
-	[DMA_U0_TIM0_CC3] = {.phy_chan_id = 10, .periph_sel = 80, .ctrl_id = 0},
-	[DMA_U0_TIM0_CC4] = {.phy_chan_id = 11, .periph_sel = 88, .ctrl_id = 0},
-
-	/* Advanced Timer 1 */
-	[DMA_U0_TIM1_COM] = {.phy_chan_id = 5, .periph_sel = 41, .ctrl_id = 0},
-	[DMA_U0_TIM1_TRG] = {.phy_chan_id = 6, .periph_sel = 49, .ctrl_id = 0},
-	[DMA_U0_TIM1_UEV] = {.phy_chan_id = 7, .periph_sel = 57, .ctrl_id = 0},
-	[DMA_U0_TIM1_CC1] = {.phy_chan_id = 8, .periph_sel = 65, .ctrl_id = 0},
-	[DMA_U0_TIM1_CC2] = {.phy_chan_id = 9, .periph_sel = 73, .ctrl_id = 0},
-	[DMA_U0_TIM1_CC3] = {.phy_chan_id = 10, .periph_sel = 81, .ctrl_id = 0},
-	[DMA_U0_TIM1_CC4] = {.phy_chan_id = 11, .periph_sel = 89, .ctrl_id = 0},
-
-	/* Advanced Timer 2 */
-	[DMA_U0_TIM2_COM] = {.phy_chan_id = 5, .periph_sel = 42, .ctrl_id = 0},
-	[DMA_U0_TIM2_TRG] = {.phy_chan_id = 6, .periph_sel = 50, .ctrl_id = 0},
-	[DMA_U0_TIM2_UEV] = {.phy_chan_id = 7, .periph_sel = 58, .ctrl_id = 0},
-	[DMA_U0_TIM2_CC1] = {.phy_chan_id = 8, .periph_sel = 66, .ctrl_id = 0},
-	[DMA_U0_TIM2_CC2] = {.phy_chan_id = 9, .periph_sel = 74, .ctrl_id = 0},
-	[DMA_U0_TIM2_CC3] = {.phy_chan_id = 10, .periph_sel = 82, .ctrl_id = 0},
-	[DMA_U0_TIM2_CC4] = {.phy_chan_id = 11, .periph_sel = 90, .ctrl_id = 0},
-
-	/* Advanced Timer 3 */
-	[DMA_U0_TIM3_COM] = {.phy_chan_id = 5, .periph_sel = 43, .ctrl_id = 0},
-	[DMA_U0_TIM3_TRG] = {.phy_chan_id = 6, .periph_sel = 51, .ctrl_id = 0},
-	[DMA_U0_TIM3_UEV] = {.phy_chan_id = 7, .periph_sel = 59, .ctrl_id = 0},
-	[DMA_U0_TIM3_CC1] = {.phy_chan_id = 8, .periph_sel = 67, .ctrl_id = 0},
-	[DMA_U0_TIM3_CC2] = {.phy_chan_id = 9, .periph_sel = 75, .ctrl_id = 0},
-	[DMA_U0_TIM3_CC3] = {.phy_chan_id = 10, .periph_sel = 83, .ctrl_id = 0},
-	[DMA_U0_TIM3_CC4] = {.phy_chan_id = 11, .periph_sel = 91, .ctrl_id = 0},
-
-	/* Advanced Timer 4 */
-	[DMA_U0_TIM4_COM] = {.phy_chan_id = 5, .periph_sel = 44, .ctrl_id = 0},
-	[DMA_U0_TIM4_TRG] = {.phy_chan_id = 6, .periph_sel = 52, .ctrl_id = 0},
-	[DMA_U0_TIM4_UEV] = {.phy_chan_id = 7, .periph_sel = 60, .ctrl_id = 0},
-	[DMA_U0_TIM4_CC1] = {.phy_chan_id = 8, .periph_sel = 68, .ctrl_id = 0},
-	[DMA_U0_TIM4_CC2] = {.phy_chan_id = 9, .periph_sel = 76, .ctrl_id = 0},
-	[DMA_U0_TIM4_CC3] = {.phy_chan_id = 10, .periph_sel = 84, .ctrl_id = 0},
-	[DMA_U0_TIM4_CC4] = {.phy_chan_id = 11, .periph_sel = 92, .ctrl_id = 0},
-
-	/* Advanced Timer 5 */
-	[DMA_U0_TIM5_COM] = {.phy_chan_id = 5, .periph_sel = 45, .ctrl_id = 0},
-	[DMA_U0_TIM5_TRG] = {.phy_chan_id = 6, .periph_sel = 53, .ctrl_id = 0},
-	[DMA_U0_TIM5_UEV] = {.phy_chan_id = 7, .periph_sel = 61, .ctrl_id = 0},
-	[DMA_U0_TIM5_CC1] = {.phy_chan_id = 8, .periph_sel = 69, .ctrl_id = 0},
-	[DMA_U0_TIM5_CC2] = {.phy_chan_id = 9, .periph_sel = 77, .ctrl_id = 0},
-	[DMA_U0_TIM5_CC3] = {.phy_chan_id = 10, .periph_sel = 85, .ctrl_id = 0},
-	[DMA_U0_TIM5_CC4] = {.phy_chan_id = 11, .periph_sel = 93, .ctrl_id = 0},
-
-	/* Advanced Timer 6 */
-	[DMA_U0_TIM6_COM] = {.phy_chan_id = 5, .periph_sel = 46, .ctrl_id = 0},
-	[DMA_U0_TIM6_TRG] = {.phy_chan_id = 6, .periph_sel = 54, .ctrl_id = 0},
-	[DMA_U0_TIM6_UEV] = {.phy_chan_id = 7, .periph_sel = 62, .ctrl_id = 0},
-	[DMA_U0_TIM6_CC1] = {.phy_chan_id = 8, .periph_sel = 70, .ctrl_id = 0},
-	[DMA_U0_TIM6_CC2] = {.phy_chan_id = 9, .periph_sel = 78, .ctrl_id = 0},
-	[DMA_U0_TIM6_CC3] = {.phy_chan_id = 10, .periph_sel = 86, .ctrl_id = 0},
-	[DMA_U0_TIM6_CC4] = {.phy_chan_id = 11, .periph_sel = 94, .ctrl_id = 0},
-
-	/* Advanced Timer 7 */
-	[DMA_U0_TIM7_COM] = {.phy_chan_id = 5, .periph_sel = 47, .ctrl_id = 0},
-	[DMA_U0_TIM7_TRG] = {.phy_chan_id = 6, .periph_sel = 55, .ctrl_id = 0},
-	[DMA_U0_TIM7_UEV] = {.phy_chan_id = 7, .periph_sel = 63, .ctrl_id = 0},
-	[DMA_U0_TIM7_CC1] = {.phy_chan_id = 8, .periph_sel = 71, .ctrl_id = 0},
-	[DMA_U0_TIM7_CC2] = {.phy_chan_id = 9, .periph_sel = 79, .ctrl_id = 0},
-	[DMA_U0_TIM7_CC3] = {.phy_chan_id = 10, .periph_sel = 87, .ctrl_id = 0},
-	[DMA_U0_TIM7_CC4] = {.phy_chan_id = 11, .periph_sel = 95, .ctrl_id = 0},
-
-	/* ========== ACC_UDMA1 (ctrl_id = 1) ========== */
-	/* USART7 */
-	[DMA_U1_USART7_TX] = {.phy_chan_id = 3, .periph_sel = 14, .ctrl_id = 1},
-	[DMA_U1_USART7_RX] = {.phy_chan_id = 9, .periph_sel = 91, .ctrl_id = 1},
-
-	/* USART8 */
-	[DMA_U1_USART8_TX] = {.phy_chan_id = 0, .periph_sel = 0, .ctrl_id = 1},
-	[DMA_U1_USART8_RX] = {.phy_chan_id = 1, .periph_sel = 8, .ctrl_id = 1},
-
-	/* USART9 */
-	[DMA_U1_USART9_TX] = {.phy_chan_id = 2, .periph_sel = 1, .ctrl_id = 1},
-	[DMA_U1_USART9_RX] = {.phy_chan_id = 3, .periph_sel = 9, .ctrl_id = 1},
-
-	/* USART10 */
-	[DMA_U1_USART10_TX] = {.phy_chan_id = 0, .periph_sel = 2, .ctrl_id = 1},
-	[DMA_U1_USART10_RX] = {.phy_chan_id = 1, .periph_sel = 10, .ctrl_id = 1},
-
-	/* USART11 */
-	[DMA_U1_USART11_TX] = {.phy_chan_id = 2, .periph_sel = 3, .ctrl_id = 1},
-	[DMA_U1_USART11_RX] = {.phy_chan_id = 3, .periph_sel = 11, .ctrl_id = 1},
-
-	/* USART12 */
-	[DMA_U1_USART12_TX] = {.phy_chan_id = 0, .periph_sel = 4, .ctrl_id = 1},
-	[DMA_U1_USART12_RX] = {.phy_chan_id = 1, .periph_sel = 12, .ctrl_id = 1},
-
-	/* I2C2 */
-	[DMA_U1_I2C2_TX] = {.phy_chan_id = 0, .periph_sel = 5, .ctrl_id = 1},
-	[DMA_U1_I2C2_RX] = {.phy_chan_id = 1, .periph_sel = 13, .ctrl_id = 1},
-
-	/* I2C3 */
-	[DMA_U1_I2C3_TX] = {.phy_chan_id = 2, .periph_sel = 6, .ctrl_id = 1},
-	[DMA_U1_I2C3_RX] = {.phy_chan_id = 9, .periph_sel = 90, .ctrl_id = 1},
-
-	/* QSPI4 */
-	[DMA_U1_QSPI4_TX] = {.phy_chan_id = 0, .periph_sel = 7, .ctrl_id = 1},
-	[DMA_U1_QSPI4_RX] = {.phy_chan_id = 1, .periph_sel = 15, .ctrl_id = 1},
-
-	/* QSPI5 */
-	[DMA_U1_QSPI5_TX] = {.phy_chan_id = 4, .periph_sel = 16, .ctrl_id = 1},
-	[DMA_U1_QSPI5_RX] = {.phy_chan_id = 5, .periph_sel = 24, .ctrl_id = 1},
-
-	/* QSPI6 */
-	[DMA_U1_QSPI6_TX] = {.phy_chan_id = 2, .periph_sel = 17, .ctrl_id = 1},
-	[DMA_U1_QSPI6_RX] = {.phy_chan_id = 3, .periph_sel = 25, .ctrl_id = 1},
-
-	/* SAI0 - SAI2/SAI3 */
-	[DMA_U1_SAI2_A_TX] = {.phy_chan_id = 2, .periph_sel = 18, .ctrl_id = 1},
-	[DMA_U1_SAI2_B_TX] = {.phy_chan_id = 2, .periph_sel = 19, .ctrl_id = 1},
-	[DMA_U1_SAI3_A_TX] = {.phy_chan_id = 2, .periph_sel = 20, .ctrl_id = 1},
-	[DMA_U1_SAI3_B_TX] = {.phy_chan_id = 2, .periph_sel = 21, .ctrl_id = 1},
-	[DMA_U1_SAI2_A_RX] = {.phy_chan_id = 3, .periph_sel = 26, .ctrl_id = 1},
-	[DMA_U1_SAI2_B_RX] = {.phy_chan_id = 3, .periph_sel = 27, .ctrl_id = 1},
-	[DMA_U1_SAI3_A_RX] = {.phy_chan_id = 3, .periph_sel = 28, .ctrl_id = 1},
-	[DMA_U1_SAI3_B_RX] = {.phy_chan_id = 3, .periph_sel = 29, .ctrl_id = 1},
-
-	/* ADC */
-	[DMA_U1_ADC0] = {.phy_chan_id = 2, .periph_sel = 22, .ctrl_id = 1},
-	[DMA_U1_ADC1] = {.phy_chan_id = 3, .periph_sel = 30, .ctrl_id = 1},
-	[DMA_U1_ADC2] = {.phy_chan_id = 2, .periph_sel = 23, .ctrl_id = 1},
-
-	/* DFSDM0 */
-	[DMA_U1_DFSDM0_DMA3] = {.phy_chan_id = 3, .periph_sel = 31, .ctrl_id = 1},
-	[DMA_U1_DFSDM0_DMA4] = {.phy_chan_id = 11, .periph_sel = 92, .ctrl_id = 1},
-	[DMA_U1_DFSDM0_DMA5] = {.phy_chan_id = 11, .periph_sel = 93, .ctrl_id = 1},
-
-	/* Advanced Timer 8 */
-	[DMA_U1_TIM8_COM] = {.phy_chan_id = 4, .periph_sel = 32, .ctrl_id = 1},
-	[DMA_U1_TIM8_TRG] = {.phy_chan_id = 5, .periph_sel = 40, .ctrl_id = 1},
-	[DMA_U1_TIM8_UEV] = {.phy_chan_id = 6, .periph_sel = 48, .ctrl_id = 1},
-	[DMA_U1_TIM8_CC1] = {.phy_chan_id = 7, .periph_sel = 56, .ctrl_id = 1},
-	[DMA_U1_TIM8_CC2] = {.phy_chan_id = 8, .periph_sel = 64, .ctrl_id = 1},
-	[DMA_U1_TIM8_CC3] = {.phy_chan_id = 9, .periph_sel = 72, .ctrl_id = 1},
-	[DMA_U1_TIM8_CC4] = {.phy_chan_id = 10, .periph_sel = 80, .ctrl_id = 1},
-
-	/* Advanced Timer 9 */
-	[DMA_U1_TIM9_COM] = {.phy_chan_id = 4, .periph_sel = 33, .ctrl_id = 1},
-	[DMA_U1_TIM9_TRG] = {.phy_chan_id = 5, .periph_sel = 41, .ctrl_id = 1},
-	[DMA_U1_TIM9_UEV] = {.phy_chan_id = 6, .periph_sel = 49, .ctrl_id = 1},
-	[DMA_U1_TIM9_CC1] = {.phy_chan_id = 7, .periph_sel = 57, .ctrl_id = 1},
-	[DMA_U1_TIM9_CC2] = {.phy_chan_id = 8, .periph_sel = 65, .ctrl_id = 1},
-	[DMA_U1_TIM9_CC3] = {.phy_chan_id = 9, .periph_sel = 73, .ctrl_id = 1},
-	[DMA_U1_TIM9_CC4] = {.phy_chan_id = 10, .periph_sel = 81, .ctrl_id = 1},
-
-	/* Advanced Timer 10 */
-	[DMA_U1_TIM10_COM] = {.phy_chan_id = 4, .periph_sel = 34, .ctrl_id = 1},
-	[DMA_U1_TIM10_TRG] = {.phy_chan_id = 5, .periph_sel = 42, .ctrl_id = 1},
-	[DMA_U1_TIM10_UEV] = {.phy_chan_id = 6, .periph_sel = 50, .ctrl_id = 1},
-	[DMA_U1_TIM10_CC1] = {.phy_chan_id = 7, .periph_sel = 58, .ctrl_id = 1},
-	[DMA_U1_TIM10_CC2] = {.phy_chan_id = 8, .periph_sel = 66, .ctrl_id = 1},
-	[DMA_U1_TIM10_CC3] = {.phy_chan_id = 9, .periph_sel = 74, .ctrl_id = 1},
-	[DMA_U1_TIM10_CC4] = {.phy_chan_id = 10, .periph_sel = 82, .ctrl_id = 1},
-
-	/* Advanced Timer 11 */
-	[DMA_U1_TIM11_COM] = {.phy_chan_id = 4, .periph_sel = 35, .ctrl_id = 1},
-	[DMA_U1_TIM11_TRG] = {.phy_chan_id = 5, .periph_sel = 43, .ctrl_id = 1},
-	[DMA_U1_TIM11_UEV] = {.phy_chan_id = 6, .periph_sel = 51, .ctrl_id = 1},
-	[DMA_U1_TIM11_CC1] = {.phy_chan_id = 7, .periph_sel = 59, .ctrl_id = 1},
-	[DMA_U1_TIM11_CC2] = {.phy_chan_id = 8, .periph_sel = 67, .ctrl_id = 1},
-	[DMA_U1_TIM11_CC3] = {.phy_chan_id = 9, .periph_sel = 75, .ctrl_id = 1},
-	[DMA_U1_TIM11_CC4] = {.phy_chan_id = 10, .periph_sel = 83, .ctrl_id = 1},
-
-	/* Advanced Timer 12 */
-	[DMA_U1_TIM12_COM] = {.phy_chan_id = 4, .periph_sel = 36, .ctrl_id = 1},
-	[DMA_U1_TIM12_TRG] = {.phy_chan_id = 5, .periph_sel = 44, .ctrl_id = 1},
-	[DMA_U1_TIM12_UEV] = {.phy_chan_id = 6, .periph_sel = 52, .ctrl_id = 1},
-	[DMA_U1_TIM12_CC1] = {.phy_chan_id = 7, .periph_sel = 60, .ctrl_id = 1},
-	[DMA_U1_TIM12_CC2] = {.phy_chan_id = 8, .periph_sel = 68, .ctrl_id = 1},
-	[DMA_U1_TIM12_CC3] = {.phy_chan_id = 9, .periph_sel = 76, .ctrl_id = 1},
-	[DMA_U1_TIM12_CC4] = {.phy_chan_id = 10, .periph_sel = 84, .ctrl_id = 1},
-
-	/* Advanced Timer 13 */
-	[DMA_U1_TIM13_COM] = {.phy_chan_id = 4, .periph_sel = 37, .ctrl_id = 1},
-	[DMA_U1_TIM13_TRG] = {.phy_chan_id = 5, .periph_sel = 45, .ctrl_id = 1},
-	[DMA_U1_TIM13_UEV] = {.phy_chan_id = 6, .periph_sel = 53, .ctrl_id = 1},
-	[DMA_U1_TIM13_CC1] = {.phy_chan_id = 7, .periph_sel = 61, .ctrl_id = 1},
-	[DMA_U1_TIM13_CC2] = {.phy_chan_id = 8, .periph_sel = 69, .ctrl_id = 1},
-	[DMA_U1_TIM13_CC3] = {.phy_chan_id = 9, .periph_sel = 77, .ctrl_id = 1},
-	[DMA_U1_TIM13_CC4] = {.phy_chan_id = 10, .periph_sel = 85, .ctrl_id = 1},
-
-	/* Advanced Timer 14 */
-	[DMA_U1_TIM14_COM] = {.phy_chan_id = 4, .periph_sel = 38, .ctrl_id = 1},
-	[DMA_U1_TIM14_TRG] = {.phy_chan_id = 5, .periph_sel = 46, .ctrl_id = 1},
-	[DMA_U1_TIM14_UEV] = {.phy_chan_id = 6, .periph_sel = 54, .ctrl_id = 1},
-	[DMA_U1_TIM14_CC1] = {.phy_chan_id = 7, .periph_sel = 62, .ctrl_id = 1},
-	[DMA_U1_TIM14_CC2] = {.phy_chan_id = 8, .periph_sel = 70, .ctrl_id = 1},
-	[DMA_U1_TIM14_CC3] = {.phy_chan_id = 9, .periph_sel = 78, .ctrl_id = 1},
-	[DMA_U1_TIM14_CC4] = {.phy_chan_id = 10, .periph_sel = 86, .ctrl_id = 1},
-
-	/* Advanced Timer 15 */
-	[DMA_U1_TIM15_COM] = {.phy_chan_id = 4, .periph_sel = 39, .ctrl_id = 1},
-	[DMA_U1_TIM15_TRG] = {.phy_chan_id = 5, .periph_sel = 47, .ctrl_id = 1},
-	[DMA_U1_TIM15_UEV] = {.phy_chan_id = 6, .periph_sel = 55, .ctrl_id = 1},
-	[DMA_U1_TIM15_CC1] = {.phy_chan_id = 7, .periph_sel = 63, .ctrl_id = 1},
-	[DMA_U1_TIM15_CC2] = {.phy_chan_id = 8, .periph_sel = 71, .ctrl_id = 1},
-	[DMA_U1_TIM15_CC3] = {.phy_chan_id = 9, .periph_sel = 79, .ctrl_id = 1},
-	[DMA_U1_TIM15_CC4] = {.phy_chan_id = 10, .periph_sel = 87, .ctrl_id = 1},
+	DMA_U1_MAX_REQ_ID = 94,
 };
 
 struct nuclei_dmac_desc_node {
@@ -724,7 +428,7 @@ struct nuclei_dmac_pchan {
 	struct nuclei_dmac_vchan *vchan;
 	void __iomem *reg_ch_cfg_base;
 	void __iomem *reg_ch_irq_base;
-	struct work_struct irq_work;
+	struct tasklet_struct irq_tasklet;
 	u32 pending_stat;
 	/* channel phy id */
 	int id;
@@ -754,6 +458,308 @@ struct nuclei_dmac_device {
 	int nr_vchans;
 	struct nuclei_dmac_vchan *vchans;
 	int dmac_ctrl_id;
+	const dma_chan_info_t *chan_info_tab;
+	int max_req_id;
+};
+
+/*******************************************************************************
+ * DMA channel info mapping table
+ ******************************************************************************/
+static const dma_chan_info_t dma_chan_info_tab_u0[DMA_U0_MAX_REQ_ID] = {
+	/* ========== ACC_UDMA0 (ctrl_id = 0) ========== */
+	/* USART0 */
+	[DMA_U0_USART0_TX] = {.phy_chan_id = 0, .periph_sel = 0},
+	[DMA_U0_USART0_RX] = {.phy_chan_id = 1, .periph_sel = 8},
+
+	/* USART1 */
+	[DMA_U0_USART1_TX] = {.phy_chan_id = 2, .periph_sel = 1},
+	[DMA_U0_USART1_RX] = {.phy_chan_id = 3, .periph_sel = 9},
+
+	/* USART2 */
+	[DMA_U0_USART2_TX] = {.phy_chan_id = 0, .periph_sel = 2},
+	[DMA_U0_USART2_RX] = {.phy_chan_id = 1, .periph_sel = 10},
+
+	/* USART3 */
+	[DMA_U0_USART3_TX] = {.phy_chan_id = 2, .periph_sel = 3},
+	[DMA_U0_USART3_RX] = {.phy_chan_id = 3, .periph_sel = 11},
+
+	/* USART4 */
+	[DMA_U0_USART4_TX] = {.phy_chan_id = 0, .periph_sel = 4},
+	[DMA_U0_USART4_RX] = {.phy_chan_id = 1, .periph_sel = 12},
+
+	/* USART5 */
+	[DMA_U0_USART5_TX] = {.phy_chan_id = 2, .periph_sel = 5},
+	[DMA_U0_USART5_RX] = {.phy_chan_id = 3, .periph_sel = 13},
+
+	/* USART6 */
+	[DMA_U0_USART6_TX] = {.phy_chan_id = 0, .periph_sel = 6},
+	[DMA_U0_USART6_RX] = {.phy_chan_id = 1, .periph_sel = 14},
+
+	/* I2C0 */
+	[DMA_U0_I2C0_TX] = {.phy_chan_id = 2, .periph_sel = 16},
+	[DMA_U0_I2C0_RX] = {.phy_chan_id = 3, .periph_sel = 24},
+
+	/* I2C1 */
+	[DMA_U0_I2C1_TX] = {.phy_chan_id = 4, .periph_sel = 17},
+	[DMA_U0_I2C1_RX] = {.phy_chan_id = 5, .periph_sel = 25},
+
+	/* QSPI XIP0 */
+	[DMA_U0_QSPI_XIP0_TX] = {.phy_chan_id = 2, .periph_sel = 18},
+	[DMA_U0_QSPI_XIP0_RX] = {.phy_chan_id = 3, .periph_sel = 26},
+
+	/* QSPI XIP1 */
+	[DMA_U0_QSPI_XIP1_TX] = {.phy_chan_id = 2, .periph_sel = 19},
+	[DMA_U0_QSPI_XIP1_RX] = {.phy_chan_id = 3, .periph_sel = 27},
+
+	/* QSPI XIP2 */
+	[DMA_U0_QSPI_XIP2_TX] = {.phy_chan_id = 2, .periph_sel = 20},
+	[DMA_U0_QSPI_XIP2_RX] = {.phy_chan_id = 3, .periph_sel = 28},
+
+	/* QSPI3 */
+	[DMA_U0_QSPI3_TX] = {.phy_chan_id = 4, .periph_sel = 23},
+	[DMA_U0_QSPI3_RX] = {.phy_chan_id = 5, .periph_sel = 31},
+
+	/* DAC */
+	[DMA_U0_DAC_CH1] = {.phy_chan_id = 2, .periph_sel = 21},
+	[DMA_U0_DAC_CH2] = {.phy_chan_id = 3, .periph_sel = 29},
+
+	/* DFSDM0 */
+	[DMA_U0_DFSDM0_DMA0] = {.phy_chan_id = 2, .periph_sel = 22},
+	[DMA_U0_DFSDM0_DMA1] = {.phy_chan_id = 3, .periph_sel = 30},
+	[DMA_U0_DFSDM0_DMA2] = {.phy_chan_id = 12, .periph_sel = 96},
+
+	/* SAI0 */
+	[DMA_U0_SAI0_A_TX] = {.phy_chan_id = 4, .periph_sel = 32},
+	[DMA_U0_SAI0_B_TX] = {.phy_chan_id = 4, .periph_sel = 33},
+	[DMA_U0_SAI1_A_TX] = {.phy_chan_id = 4, .periph_sel = 34},
+	[DMA_U0_SAI1_B_TX] = {.phy_chan_id = 4, .periph_sel = 35},
+	[DMA_U0_SAI0_A_RX] = {.phy_chan_id = 12, .periph_sel = 100},
+	[DMA_U0_SAI0_B_RX] = {.phy_chan_id = 12, .periph_sel = 101},
+	[DMA_U0_SAI1_A_RX] = {.phy_chan_id = 12, .periph_sel = 102},
+	[DMA_U0_SAI1_B_RX] = {.phy_chan_id = 12, .periph_sel = 103},
+
+	/* CORDIC0 */
+	[DMA_U0_CORDIC0_TX] = {.phy_chan_id = 4, .periph_sel = 36},
+	[DMA_U0_CORDIC0_RX] = {.phy_chan_id = 12, .periph_sel = 97},
+
+	/* SWPMI0 */
+	[DMA_U0_SWPMI0_TX] = {.phy_chan_id = 4, .periph_sel = 37},
+	[DMA_U0_SWPMI0_RX] = {.phy_chan_id = 12, .periph_sel = 98},
+
+	/* SPDIFRX0 */
+	[DMA_U0_SPDIFRX0_CTRL] = {.phy_chan_id = 4, .periph_sel = 38},
+	[DMA_U0_SPDIFRX0_DAT] = {.phy_chan_id = 12, .periph_sel = 99},
+
+	/* Advanced Timer 0 */
+	[DMA_U0_TIM0_COM] = {.phy_chan_id = 5, .periph_sel = 40},
+	[DMA_U0_TIM0_TRG] = {.phy_chan_id = 6, .periph_sel = 48},
+	[DMA_U0_TIM0_UEV] = {.phy_chan_id = 7, .periph_sel = 56},
+	[DMA_U0_TIM0_CC1] = {.phy_chan_id = 8, .periph_sel = 64},
+	[DMA_U0_TIM0_CC2] = {.phy_chan_id = 9, .periph_sel = 72},
+	[DMA_U0_TIM0_CC3] = {.phy_chan_id = 10, .periph_sel = 80},
+	[DMA_U0_TIM0_CC4] = {.phy_chan_id = 11, .periph_sel = 88},
+
+	/* Advanced Timer 1 */
+	[DMA_U0_TIM1_COM] = {.phy_chan_id = 5, .periph_sel = 41},
+	[DMA_U0_TIM1_TRG] = {.phy_chan_id = 6, .periph_sel = 49},
+	[DMA_U0_TIM1_UEV] = {.phy_chan_id = 7, .periph_sel = 57},
+	[DMA_U0_TIM1_CC1] = {.phy_chan_id = 8, .periph_sel = 65},
+	[DMA_U0_TIM1_CC2] = {.phy_chan_id = 9, .periph_sel = 73},
+	[DMA_U0_TIM1_CC3] = {.phy_chan_id = 10, .periph_sel = 81},
+	[DMA_U0_TIM1_CC4] = {.phy_chan_id = 11, .periph_sel = 89},
+
+	/* Advanced Timer 2 */
+	[DMA_U0_TIM2_COM] = {.phy_chan_id = 5, .periph_sel = 42},
+	[DMA_U0_TIM2_TRG] = {.phy_chan_id = 6, .periph_sel = 50},
+	[DMA_U0_TIM2_UEV] = {.phy_chan_id = 7, .periph_sel = 58},
+	[DMA_U0_TIM2_CC1] = {.phy_chan_id = 8, .periph_sel = 66},
+	[DMA_U0_TIM2_CC2] = {.phy_chan_id = 9, .periph_sel = 74},
+	[DMA_U0_TIM2_CC3] = {.phy_chan_id = 10, .periph_sel = 82},
+	[DMA_U0_TIM2_CC4] = {.phy_chan_id = 11, .periph_sel = 90},
+
+	/* Advanced Timer 3 */
+	[DMA_U0_TIM3_COM] = {.phy_chan_id = 5, .periph_sel = 43},
+	[DMA_U0_TIM3_TRG] = {.phy_chan_id = 6, .periph_sel = 51},
+	[DMA_U0_TIM3_UEV] = {.phy_chan_id = 7, .periph_sel = 59},
+	[DMA_U0_TIM3_CC1] = {.phy_chan_id = 8, .periph_sel = 67},
+	[DMA_U0_TIM3_CC2] = {.phy_chan_id = 9, .periph_sel = 75},
+	[DMA_U0_TIM3_CC3] = {.phy_chan_id = 10, .periph_sel = 83},
+	[DMA_U0_TIM3_CC4] = {.phy_chan_id = 11, .periph_sel = 91},
+
+	/* Advanced Timer 4 */
+	[DMA_U0_TIM4_COM] = {.phy_chan_id = 5, .periph_sel = 44},
+	[DMA_U0_TIM4_TRG] = {.phy_chan_id = 6, .periph_sel = 52},
+	[DMA_U0_TIM4_UEV] = {.phy_chan_id = 7, .periph_sel = 60},
+	[DMA_U0_TIM4_CC1] = {.phy_chan_id = 8, .periph_sel = 68},
+	[DMA_U0_TIM4_CC2] = {.phy_chan_id = 9, .periph_sel = 76},
+	[DMA_U0_TIM4_CC3] = {.phy_chan_id = 10, .periph_sel = 84},
+	[DMA_U0_TIM4_CC4] = {.phy_chan_id = 11, .periph_sel = 92},
+
+	/* Advanced Timer 5 */
+	[DMA_U0_TIM5_COM] = {.phy_chan_id = 5, .periph_sel = 45},
+	[DMA_U0_TIM5_TRG] = {.phy_chan_id = 6, .periph_sel = 53},
+	[DMA_U0_TIM5_UEV] = {.phy_chan_id = 7, .periph_sel = 61},
+	[DMA_U0_TIM5_CC1] = {.phy_chan_id = 8, .periph_sel = 69},
+	[DMA_U0_TIM5_CC2] = {.phy_chan_id = 9, .periph_sel = 77},
+	[DMA_U0_TIM5_CC3] = {.phy_chan_id = 10, .periph_sel = 85},
+	[DMA_U0_TIM5_CC4] = {.phy_chan_id = 11, .periph_sel = 93},
+
+	/* Advanced Timer 6 */
+	[DMA_U0_TIM6_COM] = {.phy_chan_id = 5, .periph_sel = 46},
+	[DMA_U0_TIM6_TRG] = {.phy_chan_id = 6, .periph_sel = 54},
+	[DMA_U0_TIM6_UEV] = {.phy_chan_id = 7, .periph_sel = 62},
+	[DMA_U0_TIM6_CC1] = {.phy_chan_id = 8, .periph_sel = 70},
+	[DMA_U0_TIM6_CC2] = {.phy_chan_id = 9, .periph_sel = 78},
+	[DMA_U0_TIM6_CC3] = {.phy_chan_id = 10, .periph_sel = 86},
+	[DMA_U0_TIM6_CC4] = {.phy_chan_id = 11, .periph_sel = 94},
+
+	/* Advanced Timer 7 */
+	[DMA_U0_TIM7_COM] = {.phy_chan_id = 5, .periph_sel = 47},
+	[DMA_U0_TIM7_TRG] = {.phy_chan_id = 6, .periph_sel = 55},
+	[DMA_U0_TIM7_UEV] = {.phy_chan_id = 7, .periph_sel = 63},
+	[DMA_U0_TIM7_CC1] = {.phy_chan_id = 8, .periph_sel = 71},
+	[DMA_U0_TIM7_CC2] = {.phy_chan_id = 9, .periph_sel = 79},
+	[DMA_U0_TIM7_CC3] = {.phy_chan_id = 10, .periph_sel = 87},
+	[DMA_U0_TIM7_CC4] = {.phy_chan_id = 11, .periph_sel = 95},
+};
+
+static const dma_chan_info_t dma_chan_info_tab_u1[DMA_U1_MAX_REQ_ID] = {
+	/* ========== ACC_UDMA1 (ctrl_id = 1) ========== */
+	/* USART7 */
+	[DMA_U1_USART7_TX] = {.phy_chan_id = 3, .periph_sel = 14},
+	[DMA_U1_USART7_RX] = {.phy_chan_id = 9, .periph_sel = 91},
+
+	/* USART8 */
+	[DMA_U1_USART8_TX] = {.phy_chan_id = 0, .periph_sel = 0},
+	[DMA_U1_USART8_RX] = {.phy_chan_id = 1, .periph_sel = 8},
+
+	/* USART9 */
+	[DMA_U1_USART9_TX] = {.phy_chan_id = 2, .periph_sel = 1},
+	[DMA_U1_USART9_RX] = {.phy_chan_id = 3, .periph_sel = 9},
+
+	/* USART10 */
+	[DMA_U1_USART10_TX] = {.phy_chan_id = 0, .periph_sel = 2},
+	[DMA_U1_USART10_RX] = {.phy_chan_id = 1, .periph_sel = 10},
+
+	/* USART11 */
+	[DMA_U1_USART11_TX] = {.phy_chan_id = 2, .periph_sel = 3},
+	[DMA_U1_USART11_RX] = {.phy_chan_id = 3, .periph_sel = 11},
+
+	/* USART12 */
+	[DMA_U1_USART12_TX] = {.phy_chan_id = 0, .periph_sel = 4},
+	[DMA_U1_USART12_RX] = {.phy_chan_id = 1, .periph_sel = 12},
+
+	/* I2C2 */
+	[DMA_U1_I2C2_TX] = {.phy_chan_id = 0, .periph_sel = 5},
+	[DMA_U1_I2C2_RX] = {.phy_chan_id = 1, .periph_sel = 13},
+
+	/* I2C3 */
+	[DMA_U1_I2C3_TX] = {.phy_chan_id = 2, .periph_sel = 6},
+	[DMA_U1_I2C3_RX] = {.phy_chan_id = 9, .periph_sel = 90},
+
+	/* QSPI4 */
+	[DMA_U1_QSPI4_TX] = {.phy_chan_id = 0, .periph_sel = 7},
+	[DMA_U1_QSPI4_RX] = {.phy_chan_id = 1, .periph_sel = 15},
+
+	/* QSPI5 */
+	[DMA_U1_QSPI5_TX] = {.phy_chan_id = 4, .periph_sel = 16},
+	[DMA_U1_QSPI5_RX] = {.phy_chan_id = 5, .periph_sel = 24},
+
+	/* QSPI6 */
+	[DMA_U1_QSPI6_TX] = {.phy_chan_id = 2, .periph_sel = 17},
+	[DMA_U1_QSPI6_RX] = {.phy_chan_id = 3, .periph_sel = 25},
+
+	/* SAI0 - SAI2/SAI3 */
+	[DMA_U1_SAI2_A_TX] = {.phy_chan_id = 2, .periph_sel = 18},
+	[DMA_U1_SAI2_B_TX] = {.phy_chan_id = 2, .periph_sel = 19},
+	[DMA_U1_SAI3_A_TX] = {.phy_chan_id = 2, .periph_sel = 20},
+	[DMA_U1_SAI3_B_TX] = {.phy_chan_id = 2, .periph_sel = 21},
+	[DMA_U1_SAI2_A_RX] = {.phy_chan_id = 3, .periph_sel = 26},
+	[DMA_U1_SAI2_B_RX] = {.phy_chan_id = 3, .periph_sel = 27},
+	[DMA_U1_SAI3_A_RX] = {.phy_chan_id = 3, .periph_sel = 28},
+	[DMA_U1_SAI3_B_RX] = {.phy_chan_id = 3, .periph_sel = 29},
+
+	/* ADC */
+	[DMA_U1_ADC0] = {.phy_chan_id = 2, .periph_sel = 22},
+	[DMA_U1_ADC1] = {.phy_chan_id = 3, .periph_sel = 30},
+	[DMA_U1_ADC2] = {.phy_chan_id = 2, .periph_sel = 23},
+
+	/* DFSDM0 */
+	[DMA_U1_DFSDM0_DMA3] = {.phy_chan_id = 3, .periph_sel = 31},
+	[DMA_U1_DFSDM0_DMA4] = {.phy_chan_id = 11, .periph_sel = 92},
+	[DMA_U1_DFSDM0_DMA5] = {.phy_chan_id = 11, .periph_sel = 93},
+
+	/* Advanced Timer 8 */
+	[DMA_U1_TIM8_COM] = {.phy_chan_id = 4, .periph_sel = 32},
+	[DMA_U1_TIM8_TRG] = {.phy_chan_id = 5, .periph_sel = 40},
+	[DMA_U1_TIM8_UEV] = {.phy_chan_id = 6, .periph_sel = 48},
+	[DMA_U1_TIM8_CC1] = {.phy_chan_id = 7, .periph_sel = 56},
+	[DMA_U1_TIM8_CC2] = {.phy_chan_id = 8, .periph_sel = 64},
+	[DMA_U1_TIM8_CC3] = {.phy_chan_id = 9, .periph_sel = 72},
+	[DMA_U1_TIM8_CC4] = {.phy_chan_id = 10, .periph_sel = 80},
+
+	/* Advanced Timer 9 */
+	[DMA_U1_TIM9_COM] = {.phy_chan_id = 4, .periph_sel = 33},
+	[DMA_U1_TIM9_TRG] = {.phy_chan_id = 5, .periph_sel = 41},
+	[DMA_U1_TIM9_UEV] = {.phy_chan_id = 6, .periph_sel = 49},
+	[DMA_U1_TIM9_CC1] = {.phy_chan_id = 7, .periph_sel = 57},
+	[DMA_U1_TIM9_CC2] = {.phy_chan_id = 8, .periph_sel = 65},
+	[DMA_U1_TIM9_CC3] = {.phy_chan_id = 9, .periph_sel = 73},
+	[DMA_U1_TIM9_CC4] = {.phy_chan_id = 10, .periph_sel = 81},
+
+	/* Advanced Timer 10 */
+	[DMA_U1_TIM10_COM] = {.phy_chan_id = 4, .periph_sel = 34},
+	[DMA_U1_TIM10_TRG] = {.phy_chan_id = 5, .periph_sel = 42},
+	[DMA_U1_TIM10_UEV] = {.phy_chan_id = 6, .periph_sel = 50},
+	[DMA_U1_TIM10_CC1] = {.phy_chan_id = 7, .periph_sel = 58},
+	[DMA_U1_TIM10_CC2] = {.phy_chan_id = 8, .periph_sel = 66},
+	[DMA_U1_TIM10_CC3] = {.phy_chan_id = 9, .periph_sel = 74},
+	[DMA_U1_TIM10_CC4] = {.phy_chan_id = 10, .periph_sel = 82},
+
+	/* Advanced Timer 11 */
+	[DMA_U1_TIM11_COM] = {.phy_chan_id = 4, .periph_sel = 35},
+	[DMA_U1_TIM11_TRG] = {.phy_chan_id = 5, .periph_sel = 43},
+	[DMA_U1_TIM11_UEV] = {.phy_chan_id = 6, .periph_sel = 51},
+	[DMA_U1_TIM11_CC1] = {.phy_chan_id = 7, .periph_sel = 59},
+	[DMA_U1_TIM11_CC2] = {.phy_chan_id = 8, .periph_sel = 67},
+	[DMA_U1_TIM11_CC3] = {.phy_chan_id = 9, .periph_sel = 75},
+	[DMA_U1_TIM11_CC4] = {.phy_chan_id = 10, .periph_sel = 83},
+
+	/* Advanced Timer 12 */
+	[DMA_U1_TIM12_COM] = {.phy_chan_id = 4, .periph_sel = 36},
+	[DMA_U1_TIM12_TRG] = {.phy_chan_id = 5, .periph_sel = 44},
+	[DMA_U1_TIM12_UEV] = {.phy_chan_id = 6, .periph_sel = 52},
+	[DMA_U1_TIM12_CC1] = {.phy_chan_id = 7, .periph_sel = 60},
+	[DMA_U1_TIM12_CC2] = {.phy_chan_id = 8, .periph_sel = 68},
+	[DMA_U1_TIM12_CC3] = {.phy_chan_id = 9, .periph_sel = 76},
+	[DMA_U1_TIM12_CC4] = {.phy_chan_id = 10, .periph_sel = 84},
+
+	/* Advanced Timer 13 */
+	[DMA_U1_TIM13_COM] = {.phy_chan_id = 4, .periph_sel = 37},
+	[DMA_U1_TIM13_TRG] = {.phy_chan_id = 5, .periph_sel = 45},
+	[DMA_U1_TIM13_UEV] = {.phy_chan_id = 6, .periph_sel = 53},
+	[DMA_U1_TIM13_CC1] = {.phy_chan_id = 7, .periph_sel = 61},
+	[DMA_U1_TIM13_CC2] = {.phy_chan_id = 8, .periph_sel = 69},
+	[DMA_U1_TIM13_CC3] = {.phy_chan_id = 9, .periph_sel = 77},
+	[DMA_U1_TIM13_CC4] = {.phy_chan_id = 10, .periph_sel = 85},
+
+	/* Advanced Timer 14 */
+	[DMA_U1_TIM14_COM] = {.phy_chan_id = 4, .periph_sel = 38},
+	[DMA_U1_TIM14_TRG] = {.phy_chan_id = 5, .periph_sel = 46},
+	[DMA_U1_TIM14_UEV] = {.phy_chan_id = 6, .periph_sel = 54},
+	[DMA_U1_TIM14_CC1] = {.phy_chan_id = 7, .periph_sel = 62},
+	[DMA_U1_TIM14_CC2] = {.phy_chan_id = 8, .periph_sel = 70},
+	[DMA_U1_TIM14_CC3] = {.phy_chan_id = 9, .periph_sel = 78},
+	[DMA_U1_TIM14_CC4] = {.phy_chan_id = 10, .periph_sel = 86},
+
+	/* Advanced Timer 15 */
+	[DMA_U1_TIM15_COM] = {.phy_chan_id = 4, .periph_sel = 39},
+	[DMA_U1_TIM15_TRG] = {.phy_chan_id = 5, .periph_sel = 47},
+	[DMA_U1_TIM15_UEV] = {.phy_chan_id = 6, .periph_sel = 55},
+	[DMA_U1_TIM15_CC1] = {.phy_chan_id = 7, .periph_sel = 63},
+	[DMA_U1_TIM15_CC2] = {.phy_chan_id = 8, .periph_sel = 71},
+	[DMA_U1_TIM15_CC3] = {.phy_chan_id = 9, .periph_sel = 79},
+	[DMA_U1_TIM15_CC4] = {.phy_chan_id = 10, .periph_sel = 87},
 };
 
 static struct nuclei_dmac_vchan *
@@ -783,46 +789,49 @@ nuclei_dmac_next_desc(struct nuclei_dmac_vchan *xc)
 	return to_nuclei_dmac_desc(vd);
 }
 
-static struct nuclei_dmac_pchan * nuclei_dmac_find_free_pchan(
-	struct nuclei_dmac_vchan *vc)
+static struct nuclei_dmac_pchan *
+nuclei_dmac_find_free_pchan(struct nuclei_dmac_vchan *vch)
 {
 	struct nuclei_dmac_pchan *pch = NULL;
-	int i;
-	int val;
+	int i, val;
 
-	if (vc->slave == 0) {
-		for (i = 0; i < vc->xdev->nr_pchans_memcpy; i++) {
-			val = readl(vc->xdev->pchans[i].reg_ch_cfg_base + 
+	if (vch->slave == 0) {
+		for (i = 0; i < vch->xdev->nr_pchans_memcpy; i++) {
+			val = readl(vch->xdev->pchans[i].reg_ch_cfg_base +
 				DMAC_MEM_CH_CTRL_OFF);
 			if (val & 0x3)
 				continue;
-			else {
-				pch = vc->xdev->pchans + i;
-				break;
-			}
+			pch = vch->xdev->pchans + i;
+			break;
 		}
 	} else {
-		/*
-		 * reqid is bind to phy channel by hardware.
-		 */
-		if (((vc->reqid >= DMA_U0_MEM2MEM_0) && (vc->reqid < DMA_U0_MAX_REQ_ID)) ||
-		((vc->reqid >= 0) && (vc->reqid < DMA_U0_MAX_REQ_ID - DMA_U0_MAX_REQ_ID))) {
-			int tab_idx;
-
-			tab_idx = vc->reqid + ((vc->xdev->dmac_ctrl_id) ? DMA_U0_MAX_REQ_ID : 0);
-			i = dma_chan_info_tab[tab_idx].phy_chan_id + vc->xdev->nr_pchans_memcpy;
-			val = readl(vc->xdev->pchans[i].reg_ch_cfg_base + 
-					DMAC_PA_CH_CTRL_OFF);
-			if (!(val & 0x3))
-				pch = vc->xdev->pchans + i;
+		if (vch->reqid < 0 || vch->reqid >= vch->xdev->max_req_id) {
+			dev_err(vch->xdev->ddev_slave.dev,
+				"invalid reqid %d\n", vch->reqid);
+			return NULL;
 		}
+
+		i = vch->xdev->chan_info_tab[vch->reqid].phy_chan_id +
+		    vch->xdev->nr_pchans_memcpy;
+
+		if (i >= vch->xdev->nr_pchans) {
+			dev_err(vch->xdev->ddev_slave.dev,
+					"reqid %d phy_chan %d out of range (nr_pchans %d)\n",
+					vch->reqid, i, vch->xdev->nr_pchans);
+			return NULL;
+		}
+
+		val = readl(vch->xdev->pchans[i].reg_ch_cfg_base +
+			    DMAC_PA_CH_CTRL_OFF);
+		if (!(val & 0x3))
+			pch = vch->xdev->pchans + i;
 	}
 
 	return pch;
 }
 
 /* xc->vc.lock must be held by caller */
-static void nuclei_dmac_chan_start(struct nuclei_dmac_vchan *ndvch,
+static void nuclei_dmac_chan_start(struct nuclei_dmac_vchan *vch,
 				      struct nuclei_dmac_desc *xd)
 {
 	u32 src_mode, src_width;
@@ -830,28 +839,35 @@ static void nuclei_dmac_chan_start(struct nuclei_dmac_vchan *ndvch,
 	dma_addr_t src_addr, dst_addr;
 	u32 val, tnum, tsize;
 	u32 offset;
+	int ret;
 
 	/* select phy channel to execute vchan DMA request */
-	if (ndvch->pchan == NULL) {
-		ndvch->pchan = nuclei_dmac_find_free_pchan(ndvch);
-		if (!ndvch->pchan) {
-			dev_info(NULL, "no free phy channel\n");
-			return ;
+	if (vch->pchan == NULL) {
+		vch->pchan = nuclei_dmac_find_free_pchan(vch);
+		if (!vch->pchan) {
+			dev_err(vch->xdev->ddev_slave.dev,
+				"no free phy channel\n");
+			return;
 		}
 	}
 	/* wait free if dma busy */
-	offset = ndvch->slave ? DMAC_PA_CH_CTRL_OFF : DMAC_MEM_CH_CTRL_OFF;
-	val = readl(ndvch->pchan->reg_ch_cfg_base + offset);
-	while (val & 0x1) {};
+	offset = vch->slave ? DMAC_PA_CH_CTRL_OFF : DMAC_MEM_CH_CTRL_OFF;
+	ret = readl_poll_timeout_atomic(vch->pchan->reg_ch_cfg_base + offset,
+					val, !(val & 0x1), 0, 1000);
+	if (ret) {
+		dev_err(vch->xdev->ddev_slave.dev,
+			"DMA channel busy timeout\n");
+		return;
+	}
 
-	ndvch->pchan->vchan = ndvch;
+	vch->pchan->vchan = vch;
 	/* get vchan desc data */
 	src_addr = xd->nodes[xd->cur_node].src;
 	dst_addr = xd->nodes[xd->cur_node].dst;
 
 	if (xd->dir == DMA_DEV_TO_MEM) {
 		src_mode = DMAC_ADDR_MODE_FIXED;
-		src_width = ndvch->sconfig.src_addr_width;
+		src_width = vch->sconfig.src_addr_width;
 	} else {
 		src_mode = DMAC_ADDR_MODE_INC;
 		src_width = xd->nodes[xd->cur_node].data_width;
@@ -859,14 +875,14 @@ static void nuclei_dmac_chan_start(struct nuclei_dmac_vchan *ndvch,
 
 	if (xd->dir == DMA_MEM_TO_DEV) {
 		dst_mode = DMAC_ADDR_MODE_FIXED;
-		dst_width = ndvch->sconfig.dst_addr_width;
+		dst_width = vch->sconfig.dst_addr_width;
 	} else {
 		dst_mode = DMAC_ADDR_MODE_INC;
 		dst_width = xd->nodes[xd->cur_node].data_width;
 	}
 
 	/* mem2mem tranfer */
-	if (ndvch->slave == false) {
+	if (vch->slave == false) {
 		tnum = xd->nodes[xd->cur_node].trans_num;
 		tsize = xd->nodes[xd->cur_node].trans_size;
 		val = 0;
@@ -877,107 +893,109 @@ static void nuclei_dmac_chan_start(struct nuclei_dmac_vchan *ndvch,
 		val |= dst_mode << DMAC_MEM_DST_ADDR_MODE_SHIFT;
 		val |= ((tnum-1) & 0xF) << DMAC_MEM_DST_BURST_SHIFT;
 		val |= ((tnum-1) & 0xF) << DMAC_MEM_SRC_BURST_SHIFT;
-		writel(val, ndvch->pchan->reg_ch_cfg_base + DMAC_MEM_CH_CTRL_OFF);
+		writel(val, vch->pchan->reg_ch_cfg_base + DMAC_MEM_CH_CTRL_OFF);
 		/* config channel addr,transfer size */
-		writel(lower_32_bits(src_addr), ndvch->pchan->reg_ch_cfg_base + 
+		writel(lower_32_bits(src_addr), vch->pchan->reg_ch_cfg_base +
 			DMAC_MEM_CH_SRC_LBASE_OFF);
-		writel(upper_32_bits(src_addr), ndvch->pchan->reg_ch_cfg_base + 
+		writel(upper_32_bits(src_addr), vch->pchan->reg_ch_cfg_base +
 			DMAC_MEM_CH_SRC_HBASE_OFF);
-		writel(lower_32_bits(dst_addr), ndvch->pchan->reg_ch_cfg_base + 
+		writel(lower_32_bits(dst_addr), vch->pchan->reg_ch_cfg_base +
 			DMAC_MEM_CH_DST_LBASE_OFF);
-		writel(upper_32_bits(dst_addr), ndvch->pchan->reg_ch_cfg_base + 
+		writel(upper_32_bits(dst_addr), vch->pchan->reg_ch_cfg_base +
 			DMAC_MEM_CH_DST_HBASE_OFF);
-		writel(tsize, ndvch->pchan->reg_ch_cfg_base + DMAC_MEM_CH_TSIZE_OFF);
+		writel(tsize, vch->pchan->reg_ch_cfg_base + DMAC_MEM_CH_TSIZE_OFF);
 
 		/* enable interrupt */
 		writel(DMAC_IRQ_FTI_MASK | DMAC_IRQ_ETI_MASK,
-			ndvch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
+			vch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
 		/* start DMA transfer */
-		val = readl(ndvch->pchan->reg_ch_cfg_base + DMAC_MEM_CH_CTRL_OFF);
+		val = readl(vch->pchan->reg_ch_cfg_base + DMAC_MEM_CH_CTRL_OFF);
 		val |= 1 << DMAC_MEM_TRANS_EN_SHIFT;
-		writel(val, ndvch->pchan->reg_ch_cfg_base + DMAC_MEM_CH_CTRL_OFF);
+		writel(val, vch->pchan->reg_ch_cfg_base + DMAC_MEM_CH_CTRL_OFF);
 	} else {
 	/* pa2mem tranfer */
 		BUG_ON(dst_width != src_width);
 
 		tsize = xd->nodes[xd->cur_node].trans_size;
 		/* config channel addr,transfer size */
-		writel(lower_32_bits(src_addr), ndvch->pchan->reg_ch_cfg_base + 
+		writel(lower_32_bits(src_addr), vch->pchan->reg_ch_cfg_base +
 			DMAC_PA_CH_SRC_LBASE_OFF);
-		writel(upper_32_bits(src_addr), ndvch->pchan->reg_ch_cfg_base + 
+		writel(upper_32_bits(src_addr), vch->pchan->reg_ch_cfg_base +
 			DMAC_PA_CH_SRC_HBASE_OFF);
-		writel(lower_32_bits(dst_addr), ndvch->pchan->reg_ch_cfg_base + 
+		writel(lower_32_bits(dst_addr), vch->pchan->reg_ch_cfg_base +
 			DMAC_PA_CH_DST_LBASE_OFF);
-		writel(upper_32_bits(dst_addr), ndvch->pchan->reg_ch_cfg_base + 
+		writel(upper_32_bits(dst_addr), vch->pchan->reg_ch_cfg_base +
 			DMAC_PA_CH_DST_HBASE_OFF);
-		writel(tsize, ndvch->pchan->reg_ch_cfg_base + DMAC_PA_CH_TSIZE_OFF);
+
+		writel(tsize, vch->pchan->reg_ch_cfg_base + DMAC_PA_CH_TSIZE_OFF);
 		/* enable interrupt */
 		writel(DMAC_IRQ_FTI_MASK | DMAC_IRQ_ETI_MASK,
-			ndvch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
+			vch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
+
 		/* start DMA transfer */
 		val = 0;
 		val |= ((dst_width-1) & 0x7) << DMAC_PA_DATA_WIDTH_SHIFT;
 		val |= (src_mode & 0x1) << DMAC_PA_SRC_ADDR_MODE_SHIFT;
 		val |= (dst_mode & 0x1) << DMAC_PA_DST_ADDR_MODE_SHIFT;
-		val |= ((dma_chan_info_tab[ndvch->reqid].periph_sel) & 0xFF) << DMAC_PA_TRANS_PER_SEL_SHIFT;
+		val |= ((vch->xdev->chan_info_tab[vch->reqid].periph_sel) & 0xFF)
+			<< DMAC_PA_TRANS_PER_SEL_SHIFT;
 		val |= 1 << DMAC_PA_TRANS_EN_SHIFT;
-		writel(val, ndvch->pchan->reg_ch_cfg_base + DMAC_PA_CH_CTRL_OFF);
+		writel(val, vch->pchan->reg_ch_cfg_base + DMAC_PA_CH_CTRL_OFF);
 	}
 }
 
-/* ndvch->vc.lock must be held by caller */
-static int nuclei_dmac_chan_stop(struct nuclei_dmac_vchan *ndvch)
+/* vch->vc.lock must be held by caller */
+static int nuclei_dmac_chan_stop(struct nuclei_dmac_vchan *vch)
 {
 	u32 val;
 	u32 offset;
 
-	if (ndvch->pchan == NULL) {
-		dev_warn(ndvch->xdev->ddev_slave.dev, "pchan is null,cannot stop\n");
+	if (vch->pchan == NULL) {
+		dev_warn(vch->xdev->ddev_slave.dev,
+			 "pchan is null, cannot stop\n");
 		return -1;
 	}
-	if (ndvch->slave == false) {
-		offset = DMAC_MEM_CH_CTRL_OFF;
-	} else {
-		offset = DMAC_PA_CH_CTRL_OFF;
-	}
+
+	offset = vch->slave ? DMAC_PA_CH_CTRL_OFF : DMAC_MEM_CH_CTRL_OFF;
 
 	/* disable interrupt */
-	val = readl(ndvch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
+	val = readl(vch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
 	val &= ~(DMAC_IRQ_FTI_MASK | DMAC_IRQ_ETI_MASK);
-	writel(val, ndvch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
+	writel(val, vch->pchan->reg_ch_irq_base + DMAC_CH_IRQ_EN_OFF);
 	/* stop DMA */
-	val = readl(ndvch->pchan->reg_ch_cfg_base + offset);
+	val = readl(vch->pchan->reg_ch_cfg_base + offset);
 	val &= ~(1 << DMAC_MEM_TRANS_EN_SHIFT);
-	writel(val, ndvch->pchan->reg_ch_cfg_base + offset);
+	writel(val, vch->pchan->reg_ch_cfg_base + offset);
 
 	return 0;
 }
 
-/* ndvch->vc.lock must be held by caller */
-static void nuclei_dmac_start(struct nuclei_dmac_vchan *ndvch)
+/* vch->vc.lock must be held by caller */
+static void nuclei_dmac_start(struct nuclei_dmac_vchan *vch)
 {
 	struct nuclei_dmac_desc *xd;
 
-	xd = nuclei_dmac_next_desc(ndvch);
+	xd = nuclei_dmac_next_desc(vch);
 	if (xd)
-		nuclei_dmac_chan_start(ndvch, xd);
+		nuclei_dmac_chan_start(vch, xd);
 
 	/* set desc to chan regardless of xd is null */
-	ndvch->xd = xd;
+	vch->xd = xd;
 }
 
-static void nuclei_dmac_chan_work(struct work_struct *work)
+static void nuclei_dmac_chan_tasklet(unsigned long data)
 {
-	struct nuclei_dmac_pchan *pchan = container_of(work, struct nuclei_dmac_pchan, irq_work);
+	struct nuclei_dmac_pchan *pchan = (struct nuclei_dmac_pchan *)data;
 	struct nuclei_dmac_vchan *vch = pchan->vchan;
-	u32 stat = pchan->pending_stat;
+	u32 stat;
 	unsigned long flags;
 
 	if (!vch || !vch->xd)
 		return;
 
 	spin_lock_irqsave(&vch->vc.lock, flags);
-
+	stat = pchan->pending_stat;
+	pchan->pending_stat = 0;
 	if (stat & DMAC_IRQ_FTI_MASK) {
 		vch->xd->cur_node++;
 		if (vch->xd->cur_node >= vch->xd->nr_node) {
@@ -1003,7 +1021,7 @@ static int nuclei_dmac_chan_irq(struct nuclei_dmac_pchan *pchan)
 		return IRQ_NONE;
 
 	stat = readl(pchan->reg_ch_irq_base + DMAC_CH_IRQ_STAT_OFF);
-	if (stat & DMAC_IRQ_ETI_MASK) {
+	if (unlikely(stat & DMAC_IRQ_ETI_MASK)) {
 		ret = nuclei_dmac_chan_stop(vch);
 		if (ret)
 			dev_err(vch->xdev->ddev_slave.dev,
@@ -1013,26 +1031,34 @@ static int nuclei_dmac_chan_irq(struct nuclei_dmac_pchan *pchan)
 				"DMA transfer error\n");
 		/* write bits to clear */
 		writel(stat, pchan->reg_ch_irq_base + DMAC_CH_IRQ_CLR_OFF);
-	} else if ((stat & DMAC_IRQ_FTI_MASK)) {
+
+		return IRQ_HANDLED;
+	} else if (stat & DMAC_IRQ_FTI_MASK) {
 		/* write bits to clear */
 		writel(stat, pchan->reg_ch_irq_base + DMAC_CH_IRQ_CLR_OFF);
-
+		spin_lock(&vch->vc.lock);
 		pchan->pending_stat = stat;
-		schedule_work(&pchan->irq_work);
+		spin_unlock(&vch->vc.lock);
+		tasklet_schedule(&pchan->irq_tasklet);
+
+		return IRQ_HANDLED;
 	}
 
-	return IRQ_HANDLED;
+	return IRQ_NONE;
 }
 
 static irqreturn_t nuclei_dmac_irq_handler(int irq, void *dev_id)
 {
 	struct nuclei_dmac_device *xdev = dev_id;
+	irqreturn_t ret = IRQ_NONE;
 	int i;
 
-	for (i = 0; i < xdev->nr_pchans; i++)
-		nuclei_dmac_chan_irq(&xdev->pchans[i]);
+	for (i = 0; i < xdev->nr_pchans; i++) {
+		if (nuclei_dmac_chan_irq(&xdev->pchans[i]) == IRQ_HANDLED)
+			ret = IRQ_HANDLED;
+	}
 
-	return IRQ_HANDLED;
+	return ret;
 }
 
 static void nuclei_dmac_free_chan_resources(struct dma_chan *chan)
@@ -1102,11 +1128,10 @@ nuclei_dmac_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 	if (!is_slave_direction(direction))
 		return NULL;
 
-	if (direction == DMA_DEV_TO_MEM) {
+	if (direction == DMA_DEV_TO_MEM)
 		buswidth = xc->sconfig.src_addr_width;
-	} else {
+	else
 		buswidth = xc->sconfig.dst_addr_width;
-	}
 
 	xd = kzalloc(struct_size(xd, nodes, sg_len), GFP_NOWAIT);
 	if (!xd)
@@ -1181,7 +1206,7 @@ static int nuclei_dmac_terminate_all(struct dma_chan *chan)
 	vchan_get_all_descriptors(vc, &head);
 	spin_unlock_irqrestore(&vc->lock, flags);
 	if (ndvch->pchan)
-		flush_work(&ndvch->pchan->irq_work);
+		tasklet_kill(&ndvch->pchan->irq_tasklet);
 	vchan_dma_desc_free_list(vc, &head);
 
 	return ret;
@@ -1229,15 +1254,15 @@ static void nuclei_dmac_pchan_init(struct nuclei_dmac_device *xdev,
 		/* pa2mem channel id start from 0 */
 		ndpch->id = ch - xdev->nr_pchans_memcpy;
 	}
-	INIT_WORK(&ndpch->irq_work, nuclei_dmac_chan_work);
+	tasklet_init(&ndpch->irq_tasklet, nuclei_dmac_chan_tasklet,
+			(unsigned long)ndpch);
 }
 
 static struct dma_chan *of_dma_nuclei_xlate(struct of_phandle_args *dma_spec,
 					      struct of_dma *ofdma)
 {
 	struct nuclei_dmac_device *xdev = ofdma->of_dma_data;
-	int req_id = dma_spec->args[1];
-	int slave = dma_spec->args[0];
+	int req_id, slave;
 
 	/* 
 	 * args define: 
@@ -1246,10 +1271,12 @@ static struct dma_chan *of_dma_nuclei_xlate(struct of_phandle_args *dma_spec,
 	 */
 	if (dma_spec->args_count != 2)
 		return NULL;
-	if (req_id < DMA_U0_MEM2MEM_0 || req_id >= DMA_MAX_REQ_ID)
+
+	req_id = dma_spec->args[1];
+	slave = dma_spec->args[0];
+	if (req_id < 0 || req_id >= xdev->max_req_id)
 		return NULL;
-	/* get real req_id */
-	req_id = req_id - ((xdev->dmac_ctrl_id) ? DMA_U0_MAX_REQ_ID : 0);
+
 	xdev->vchans[req_id].reqid = req_id;
 	xdev->vchans[req_id].slave = slave;
 	xdev->vchans[req_id].xdev = xdev;
@@ -1264,7 +1291,8 @@ static int nuclei_dmac_probe(struct platform_device *pdev)
 	struct device_node *np = pdev->dev.of_node;
 	struct dma_device *ddev;
 	int irq;
-	int i, ret, nr_mem_channels, nr_channels, nr_requests;
+	int i, ret;
+	int nr_mem_channels = 0, nr_channels = 0, nr_requests = 0;
 
 	xdev = devm_kzalloc(dev, sizeof(struct nuclei_dmac_device),
 			    GFP_KERNEL);
@@ -1283,14 +1311,12 @@ static int nuclei_dmac_probe(struct platform_device *pdev)
 	}
 
 	ret = of_property_read_u32(np, "dma-memcpy", &nr_mem_channels);
-	if (ret) {
+	if (ret)
 		dev_warn(dev, "no dma mem2mem channels\n");
-	}
 
 	ret = of_property_read_u32(np, "dma-channels", &nr_channels);
-	if (ret) {
+	if (ret)
 		dev_warn(dev, "no dma pa2mem channels\n");
-	}
 
 	ret = of_property_read_u32(np, "dma-requests", &nr_requests);
 	if (ret) {
@@ -1299,7 +1325,15 @@ static int nuclei_dmac_probe(struct platform_device *pdev)
 	}
 
 	dev_info(dev, "dma mem channels %d, pa channels %d, dma requests %d\n",
-		nr_mem_channels, nr_channels, nr_requests);
+		 nr_mem_channels, nr_channels, nr_requests);
+
+	if (xdev->dmac_ctrl_id == 0) {
+		xdev->chan_info_tab = dma_chan_info_tab_u0;
+		xdev->max_req_id = DMA_U0_MAX_REQ_ID;
+	} else {
+		xdev->chan_info_tab = dma_chan_info_tab_u1;
+		xdev->max_req_id = DMA_U1_MAX_REQ_ID;
+	}
 
 	ddev = &xdev->ddev_memcpy;
 	ddev->dev = dev;
@@ -1471,6 +1505,7 @@ static int nuclei_dmac_remove(struct platform_device *pdev)
 	}
 	dma_async_device_unregister(ddev);
 	of_dma_controller_free(pdev->dev.of_node);
+	clk_disable_unprepare(xdev->clk);
 
 	return 0;
 }
